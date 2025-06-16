@@ -1,0 +1,11 @@
+.idea
+build
+dist
+env
+.venv
+transpilex.egg-info
+html
+assets
+php
+cakephp
+codeigniter
