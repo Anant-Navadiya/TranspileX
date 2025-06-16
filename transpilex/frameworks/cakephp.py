@@ -4,7 +4,11 @@ import subprocess
 from pathlib import Path
 
 from transpilex.helpers.change_extension import change_extension_and_copy
+from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
+from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.replace_html_links import replace_html_links
+from transpilex.helpers.update_package_json import update_package_json
 
 
 def convert_to_cakephp(dist_folder):
@@ -17,6 +21,10 @@ def convert_to_cakephp(dist_folder):
     for file in dist_path.rglob("*.php"):
         content = file.read_text(encoding="utf-8")
         original_content = content
+
+        # Skip files without any @@include or .html reference
+        if "@@include" not in content and ".html" not in content:
+            continue
 
         def with_params(match):
             file_path = match.group(1).strip()
@@ -37,6 +45,12 @@ def convert_to_cakephp(dist_folder):
 
         content = re.sub(r"@@include\(['\"](.+?\.html)['\"]\s*,\s*(\{.*?\})\)", with_params, content)
         content = re.sub(r"@@include\(['\"](.+?\.html)['\"]\)", no_params, content)
+
+        # replace .html with .php in anchor
+        content = replace_html_links(content, '')
+
+        # remove assets from links, scripts
+        content = clean_relative_asset_paths(content)
 
         if content != original_content:
             file.write_text(content, encoding="utf-8")
@@ -105,14 +119,14 @@ def create_cakephp_project(project_name, source_folder, assets_folder):
     6. Copy custom assets to webroot, preserving required files.
     """
 
-    project_path = Path("cakephp") / project_name
-    project_path.parent.mkdir(parents=True, exist_ok=True)
+    project_root = Path("cakephp") / project_name
+    project_root.parent.mkdir(parents=True, exist_ok=True)
 
     # Create CakePHP project
-    print(f"📦 Creating CakePHP project at '{project_path}'...")
+    print(f"📦 Creating CakePHP project at '{project_root}'...")
     try:
         subprocess.run(
-            f'composer create-project --prefer-dist cakephp/app:~5.0 {project_path}',
+            f'composer create-project --prefer-dist cakephp/app:~5.0 {project_root}',
             shell=True, check=True
         )
         print("✅ CakePHP project created.")
@@ -121,7 +135,7 @@ def create_cakephp_project(project_name, source_folder, assets_folder):
         return
 
     # Copy HTML/converted files to templates/Pages
-    pages_path = project_path / "templates" / "Pages"
+    pages_path = project_root / "templates" / "Pages"
     pages_path.mkdir(parents=True, exist_ok=True)
 
     change_extension_and_copy('php', source_folder, pages_path)
@@ -131,14 +145,20 @@ def create_cakephp_project(project_name, source_folder, assets_folder):
     convert_to_cakephp(pages_path)
 
     # Add root method to PagesController
-    controller_path = project_path / "src" / "Controller" / "PagesController.php"
+    controller_path = project_root / "src" / "Controller" / "PagesController.php"
     add_root_method_to_app_controller(controller_path)
 
     # Patch routes
-    patch_routes(project_path)
+    patch_routes(project_root)
 
     # Copy assets to webroot while preserving required files
-    assets_path = project_path / "webroot"
+    assets_path = project_root / "webroot"
     copy_assets(assets_folder, assets_path, preserve=["index.php", ".htaccess"])
 
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_path}")
+    # Create gulpfile.js
+    create_gulpfile_js(project_root, './webroot')
+
+    # Update dependencies
+    update_package_json(source_folder, project_root, project_name)
+
+    print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")

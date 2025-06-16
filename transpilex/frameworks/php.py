@@ -4,6 +4,9 @@ from pathlib import Path
 
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.copy_assets import copy_assets
+from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.replace_html_links import replace_html_links
+from transpilex.helpers.update_package_json import update_package_json
 
 
 def convert_to_php(dist_folder):
@@ -23,6 +26,10 @@ def convert_to_php(dist_folder):
                 content = f.read()
 
             original_content = content
+
+            # Skip files without any @@include or .html reference
+            if "@@include" not in content and ".html" not in content:
+                continue
 
             # Convert @@include('./file.html', {"key": "value"}) → PHP
             def include_with_params(match):
@@ -45,6 +52,9 @@ def convert_to_php(dist_folder):
                 content
             )
 
+            # replace .html with .php in anchor
+            content = replace_html_links(content, '.php')
+
             if content != original_content:
                 with open(file, "w", encoding="utf-8") as f:
                     f.write(content)
@@ -52,7 +62,6 @@ def convert_to_php(dist_folder):
                 count += 1
 
     print(f"\n✅ Replaced includes in {count} PHP files in '{dist_folder}'.")
-
 
 
 def create_php_project(project_name, source_folder, assets_folder):
@@ -69,7 +78,7 @@ def create_php_project(project_name, source_folder, assets_folder):
     print(f"📦 Creating PHP project at: '{project_src}'...")
     project_src.mkdir(parents=True, exist_ok=True)
 
-    # Copy HTML -> PHP to src/
+    # Copy HTML -> PHP to src
     change_extension_and_copy("php", source_folder, project_src)
 
     # Replace @@include with PHP include() in .php files
@@ -79,5 +88,10 @@ def create_php_project(project_name, source_folder, assets_folder):
     assets_path = project_src / "assets"
     copy_assets(assets_folder, assets_path)
 
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_src}")
+    # Create gulpfile.js
+    create_gulpfile_js(project_root, './src/assets')
 
+    # Update dependencies
+    update_package_json(source_folder, project_root, project_name)
+
+    print(f"\n🎉 Project '{project_name}' setup complete at: {project_src}")
