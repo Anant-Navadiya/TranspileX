@@ -2,12 +2,13 @@ import argparse
 
 from transpilex.frameworks.cakephp import create_cakephp_project
 from transpilex.frameworks.codeigniter import create_codeigniter_project
+from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import create_php_project
 
 # Constants
 SOURCE_FOLDER = './html'
 ASSETS_FOLDER = './assets'
-SUPPORTED_FRAMEWORKS = ['php', 'codeigniter', 'cakephp']
+SUPPORTED_FRAMEWORKS = ['php', 'codeigniter', 'cakephp','node']
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
@@ -15,7 +16,8 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
     framework_handlers = {
         'php': lambda: create_php_project(project_name, source_folder, assets_folder),
         'codeigniter': lambda: create_codeigniter_project(project_name, source_folder, assets_folder),
-        'cakephp': lambda: create_cakephp_project(project_name, source_folder, assets_folder)
+        'cakephp': lambda: create_cakephp_project(project_name, source_folder, assets_folder),
+        'node': lambda: create_node_project(project_name, source_folder, assets_folder),
     }
 
     handler = framework_handlers.get(framework_name)
