@@ -66,7 +66,7 @@ def convert_to_codeigniter(dist_folder):
                 r"""@@include\(['"](.+?\.html)['"]\)""", no_params, content
             )
 
-            # replace .html with .php in anchor
+            # replace .html
             content = replace_html_links(content, '')
 
             # remove assets from links, scripts

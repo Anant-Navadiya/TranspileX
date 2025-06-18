@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from transpilex.helpers import copy_assets, change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
 
@@ -156,6 +157,9 @@ def convert_to_symfony_twig(dist_folder):
 """
             # Clean asset paths
             twig_output = clean_relative_asset_paths(twig_output)
+
+            # replace .html
+            content = replace_html_links(content, '')
 
             with open(file, "w", encoding="utf-8") as f:
                 f.write(twig_output.strip() + "\n")
