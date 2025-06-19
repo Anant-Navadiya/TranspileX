@@ -3,6 +3,7 @@ import argparse
 from transpilex.frameworks.cakephp import create_cakephp_project
 from transpilex.frameworks.codeigniter import create_codeigniter_project
 from transpilex.frameworks.django import create_django_project
+from transpilex.frameworks.flask import create_flask_project
 from transpilex.frameworks.laravel import create_laravel_project
 from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import create_php_project
@@ -11,7 +12,7 @@ from transpilex.frameworks.symfony import create_symfony_project
 # Constants
 SOURCE_FOLDER = './html'
 ASSETS_FOLDER = './assets'
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django']
+SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django','flask']
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
@@ -24,6 +25,7 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
         'symfony': lambda: create_symfony_project(project_name, source_folder, assets_folder),
         'node': lambda: create_node_project(project_name, source_folder, assets_folder),
         'django': lambda: create_django_project(project_name, source_folder, assets_folder),
+        'flask': lambda: create_flask_project(project_name, source_folder, assets_folder),
     }
 
     handler = framework_handlers.get(framework_name)

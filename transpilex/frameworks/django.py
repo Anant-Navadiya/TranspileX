@@ -2,7 +2,6 @@ import re
 import json
 import subprocess
 from pathlib import Path
-import os
 from bs4 import BeautifulSoup
 from cookiecutter.main import cookiecutter
 import sys
@@ -184,7 +183,7 @@ def create_django_project(project_name, source_folder, assets_folder):
     project_root = Path("django") / project_name
     project_root.parent.mkdir(parents=True, exist_ok=True)
 
-    # Create the Django project using Composer
+    # Create the Django project
     print(f"📦 Creating Django project '{project_root}'...")
     try:
         cookiecutter(
