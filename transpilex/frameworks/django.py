@@ -103,10 +103,6 @@ def convert_to_django_templates(folder):
         # First, page-title.html which has JSON data
         content = replace_page_title_include(content)
 
-        # Handle other @@include directives (e.g., for footer) without JSON data
-        content = re.sub(r'@@include\(\s*[\'"]\.\/partials\/footer\.html[\'"]\s*\)',
-                         "{% include 'partials/footer.html' %}", content)
-
         # Handle @@include('./partials/title-meta.html', {...}) for layout title
         # This regex needs to capture the JSON part for title extraction.
         # We process it here to get the layout_title, and then remove it from content.
