@@ -17,7 +17,7 @@ def clean_relative_asset_paths(content: str) -> str:
             return match.group(0)
 
         # Clean if path starts with relative asset path
-        cleaned = re.sub(r'^(\.{0,2}/)*assets/', '', path)
+        cleaned = re.sub(r'^(\.{0,2}/)*assets', '', path)
         return f'{attr}="{cleaned}"'
 
     # Clean both href="..." and src="..."
