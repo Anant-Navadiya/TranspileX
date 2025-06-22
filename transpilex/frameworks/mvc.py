@@ -213,7 +213,7 @@ def restructure_files(src_folder, dist_folder, new_extension="cshtml", skip_dirs
 
 
 def create_mvc_project(project_name, source_folder, assets_folder):
-    project_root = Path("mvc") / project_name
+    project_root = Path("mvc") / project_name.title()
     project_root.parent.mkdir(parents=True, exist_ok=True)
 
     # Create the MVC project using Composer
@@ -227,6 +227,24 @@ def create_mvc_project(project_name, source_folder, assets_folder):
         )
         print("✅ MVC project created successfully.")
 
+        subprocess.run(
+            f'dotnet new sln -n {project_name.title()}',
+            cwd=project_root.parent,
+            shell=True,
+            check=True
+        )
+
+        sln_file = f"{project_name.title()}.sln"
+
+        subprocess.run(
+            f'dotnet sln {sln_file} add {Path(project_name.title()) / project_name.title()}.csproj',
+            cwd=project_root.parent,
+            shell=True,
+            check=True
+        )
+
+        print("✅ .sln file created successfully.")
+
     except subprocess.CalledProcessError:
         print("❌ Error: Could not create MVC project. Make sure Composer and PHP are set up correctly.")
         return
@@ -237,7 +255,6 @@ def create_mvc_project(project_name, source_folder, assets_folder):
 
     restructure_files(source_folder, pages_path, new_extension='cshtml', skip_dirs=['partials'], casing="pascal")
 
-    # Convert @@include to MVC syntax in all .php files inside templates/Pages/
     print(f"\n🔧 Converting includes in '{pages_path}'...")
 
     create_controllers(project_name.title(), pages_path, project_root,['Shared'])

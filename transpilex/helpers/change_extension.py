@@ -24,8 +24,11 @@ def change_extension_and_copy(new_extension, src_folder, dist_folder):
     count = 0
     for file in src_path.rglob("*"):
         if file.is_file() and file.suffix:
-            relative_path = file.relative_to(src_path).with_suffix(new_extension)
-            destination = dist_path / relative_path
+            relative_path = file.relative_to(src_path)
+
+            # Replace underscores with dashes in the filename (not path)
+            new_name = relative_path.stem.replace("_", "-") + new_extension
+            destination = dist_path / relative_path.parent / new_name
 
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(file, destination)

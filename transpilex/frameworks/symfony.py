@@ -176,18 +176,18 @@ def create_symfony_project(project_name, source_folder, assets_folder):
     project_root.parent.mkdir(parents=True, exist_ok=True)
 
     # Create the Symfony project using Composer
-    # print(f"📦 Creating Symfony project '{project_root}'...")
-    # try:
-    #     subprocess.run(
-    #         f'symfony new {project_root} --version="7.3.x-dev" --webapp',
-    #         shell=True,
-    #         check=True
-    #     )
-    #     print("✅ Symfony project created successfully.")
-    #
-    # except subprocess.CalledProcessError:
-    #     print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
-    #     return
+    print(f"📦 Creating Symfony project '{project_root}'...")
+    try:
+        subprocess.run(
+            f'symfony new {project_root} --version="7.3.x-dev" --webapp',
+            shell=True,
+            check=True
+        )
+        print("✅ Symfony project created successfully.")
+
+    except subprocess.CalledProcessError:
+        print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
+        return
 
     # Copy the source file and change extensions
     pages_path = project_root / "templates"
