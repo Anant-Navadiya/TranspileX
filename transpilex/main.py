@@ -6,6 +6,7 @@ from transpilex.frameworks.core import create_core_project
 from transpilex.frameworks.django import create_django_project
 from transpilex.frameworks.flask import create_flask_project
 from transpilex.frameworks.laravel import create_laravel_project
+from transpilex.frameworks.mvc import create_mvc_project
 from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import create_php_project
 from transpilex.frameworks.symfony import create_symfony_project
@@ -13,7 +14,7 @@ from transpilex.frameworks.symfony import create_symfony_project
 # Constants
 SOURCE_FOLDER = './html'
 ASSETS_FOLDER = './assets'
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core']
+SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc']
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
@@ -28,6 +29,7 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
         'django': lambda: create_django_project(project_name, source_folder, assets_folder),
         'flask': lambda: create_flask_project(project_name, source_folder, assets_folder),
         'core': lambda: create_core_project(project_name, source_folder, assets_folder),
+        'mvc': lambda: create_mvc_project(project_name, source_folder, assets_folder),
     }
 
     handler = framework_handlers.get(framework_name)

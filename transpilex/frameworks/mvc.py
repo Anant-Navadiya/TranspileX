@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -7,9 +9,9 @@ from bs4 import BeautifulSoup
 from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.create_gulpfile import create_gulpfile_js
-from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing
 from transpilex.helpers.update_package_json import update_package_json
+
 
 def extract_page_title(content: str):
     """Extract title/subtitle from page-title.html or fallback to title-meta.html"""
@@ -27,7 +29,8 @@ def extract_page_title(content: str):
             view_subtitle = json_data.get("subtitle")
         except Exception:
             pass
-        content = re.sub(page_title_pattern, '@await Html.PartialAsync("~/Pages/Shared/Partials/_PageTitle.cshtml")', content)
+        content = re.sub(page_title_pattern, '@await Html.PartialAsync("~/Pages/Shared/Partials/_PageTitle.cshtml")',
+                         content)
         return view_title, view_subtitle, content
 
     match = re.search(title_meta_pattern, content)
@@ -40,16 +43,70 @@ def extract_page_title(content: str):
 
     return view_title, None, content
 
-def set_content(namespace, model_name):
-    return f"""using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace {namespace}
+def create_controller_file(path, controller_name, actions, app_name):
+    """Creates a controller file with basic action methods."""
+    using_statements = "using Microsoft.AspNetCore.Mvc;"
+
+    controller_class = f"""
+namespace {app_name}.Controllers
 {{
-    public class {model_name} : PageModel
+    public class {controller_name}Controller : Controller
     {{
-        public void OnGet() {{ }}
-    }}
-}}"""
+{"".join([f"""        public IActionResult {action}()
+        {{
+            return View();
+        }}\n\n""" for action in actions])}    }}
+}}
+""".strip()
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(using_statements + "\n\n" + controller_class)
+
+
+def create_controllers(app_name, views_folder, destination_folder, ignore_list=None):
+    """
+    Generates controller files based on folders and .cshtml files in the views folder.
+    Deletes existing Controllers folder and recreates it.
+
+    :param app_name: The namespace (usually your ASP.NET app name)
+    :param views_folder: Path to the Views folder
+    :param destination_folder: Where to create the Controllers folder
+    :param ignore_list: List of folder or file names to ignore
+    """
+    ignore_list = ignore_list or []
+
+    controllers_path = os.path.join(destination_folder, "Controllers")
+
+    # 🔥 Remove Controllers folder if it exists
+    if os.path.isdir(controllers_path):
+        print(f"🧹 Removing existing Controllers folder: {controllers_path}")
+        shutil.rmtree(controllers_path)
+
+    os.makedirs(controllers_path, exist_ok=True)
+
+    for folder_name in os.listdir(views_folder):
+        if folder_name in ignore_list:
+            continue
+
+        folder_path = os.path.join(views_folder, folder_name)
+        if not os.path.isdir(folder_path):
+            continue
+
+        actions = []
+        for file in os.listdir(folder_path):
+            if file in ignore_list:
+                continue
+            if file.endswith(".cshtml") and not file.endswith(".cshtml.cs") and not file.startswith("_"):
+                action_name = os.path.splitext(file)[0]
+                actions.append(action_name)
+
+        if actions:
+            controller_file_path = os.path.join(controllers_path, f"{folder_name}Controller.cs")
+            create_controller_file(controller_file_path, folder_name, actions, app_name)
+            print(f"✅ Created: {controller_file_path}")
+
+    print("✨ Controller generation completed.")
 
 
 def restructure_files(src_folder, dist_folder, new_extension="cshtml", skip_dirs=None, casing="pascal"):
@@ -127,10 +184,7 @@ def restructure_files(src_folder, dist_folder, new_extension="cshtml", skip_dirs
             viewbag_lines.append(f'ViewBag.SubTitle = "{view_subtitle}";')
         viewbag_code = "\n    ".join(viewbag_lines)
 
-        cshtml_content = f"""@page \"{route_path}\"
-@model TEMP_NAMESPACE.{processed_file_name}Model
-
-@{{
+        cshtml_content = f"""@{{
     {viewbag_code}
 }}
 
@@ -149,9 +203,6 @@ def restructure_files(src_folder, dist_folder, new_extension="cshtml", skip_dirs
         # Clean asset paths
         cshtml_content = clean_relative_asset_paths(cshtml_content)
 
-        # replace .html
-        cshtml_content = replace_html_links(cshtml_content, '')
-
         with open(target_file, "w", encoding="utf-8") as f:
             f.write(cshtml_content.strip() + "\n")
 
@@ -160,70 +211,36 @@ def restructure_files(src_folder, dist_folder, new_extension="cshtml", skip_dirs
 
     print(f"\n✨ {copied_count} .cshtml files generated from HTML sources.")
 
-def add_additional_extension_files(project_name, dist_folder, new_ext="cshtml", additional_ext="cshtml.cs"):
-    dist_path = Path(dist_folder)
-    generated_count = 0
 
-    pascal_app_name = apply_casing(project_name, "pascal")
-
-    for file in dist_path.rglob(f"*.{new_ext}"):
-        file_name = file.stem
-        folder_parts = file.relative_to(dist_path).parent.parts
-        folder_path = file.parent
-
-        model_name = f"{file_name}Model"
-        namespace = f"{pascal_app_name}.Pages" + (
-            '.' + '.'.join([apply_casing(p, 'pascal') for p in folder_parts]) if folder_parts else "")
-
-        new_file_path = folder_path / f"{file_name}.{additional_ext}"
-        content = set_content(namespace, model_name)
-
-        with open(file, "r+", encoding="utf-8") as f:
-            view = f.read()
-            view = view.replace("TEMP_NAMESPACE", namespace)
-            f.seek(0)
-            f.write(view)
-            f.truncate()
-
-        try:
-            with open(new_file_path, "w", encoding="utf-8") as f:
-                f.write(content.strip() + "\n")
-            print(f"📝 Created: {new_file_path.relative_to(dist_path)}")
-            generated_count += 1
-        except IOError as e:
-            print(f"❌ Error writing {new_file_path}: {e}")
-
-    print(f"\n✅ {generated_count} .{additional_ext} files generated.")
-
-def create_core_project(project_name, source_folder, assets_folder):
-    project_root = Path("core") / project_name
+def create_mvc_project(project_name, source_folder, assets_folder):
+    project_root = Path("mvc") / project_name
     project_root.parent.mkdir(parents=True, exist_ok=True)
 
-    # Create the Core project using Composer
-    print(f"📦 Creating Core project '{project_root}'...")
+    # Create the MVC project using Composer
+    print(f"📦 Creating MVC project '{project_root}'...")
     try:
         subprocess.run(
-            f'dotnet new web -n {project_name}',
+            f'dotnet new mvc -n {project_name.title()}',
             cwd=project_root.parent,
             shell=True,
             check=True
         )
-        print("✅ Core project created successfully.")
+        print("✅ MVC project created successfully.")
 
     except subprocess.CalledProcessError:
-        print("❌ Error: Could not create Core project. Make sure Composer and PHP are set up correctly.")
+        print("❌ Error: Could not create MVC project. Make sure Composer and PHP are set up correctly.")
         return
 
     # Copy source files into templates/Pages/ as .php files
-    pages_path = project_root / "Pages"
+    pages_path = project_root / "Views"
     pages_path.mkdir(parents=True, exist_ok=True)
 
     restructure_files(source_folder, pages_path, new_extension='cshtml', skip_dirs=['partials'], casing="pascal")
 
-    add_additional_extension_files(project_name, pages_path)
-
-    # Convert @@include to Core syntax in all .php files inside templates/Pages/
+    # Convert @@include to MVC syntax in all .php files inside templates/Pages/
     print(f"\n🔧 Converting includes in '{pages_path}'...")
+
+    create_controllers(project_name.title(), pages_path, project_root,['Shared'])
 
     # Copy assets to webroot while preserving required files
     assets_path = project_root / "wwwroot"
@@ -234,6 +251,5 @@ def create_core_project(project_name, source_folder, assets_folder):
 
     # Update dependencies
     update_package_json(source_folder, project_root, project_name)
-
 
     print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")
