@@ -218,15 +218,18 @@ def create_django_project(project_name, source_folder, assets_folder):
     try:
         subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
         print("✅ Virtual environment created.")
+
         if sys.platform == "win32":
             venv_python = venv_dir / "Scripts" / "python.exe"
             venv_pip = venv_dir / "Scripts" / "pip.exe"
-        else:  # Unix-like (Linux, macOS)
-            venv_python = venv_dir / "bin" / "python"
-            venv_pip = venv_dir / "bin" / "pip"
+        else:
+            venv_python = venv_dir / "bin" / "python3"
+            venv_pip = venv_dir / "bin" / "pip3"
+
         if not venv_python.exists():
             print(f"❌ Error: Virtual environment Python executable not found at {venv_python}")
             return
+
         # --- ONLY INSTALL LOCAL.TXT ---
         local_requirements_file = project_root / "requirements" / "local.txt"
         if local_requirements_file.exists():

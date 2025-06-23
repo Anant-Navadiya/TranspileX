@@ -154,7 +154,7 @@ def create_flask_project(project_name, source_folder, assets_folder):
     print(f"📦 Creating Flask project '{project_root}'...")
     try:
         subprocess.run(
-            'git clone https://github.com/Anant-Navadiya/flask-boilerplate.git .',
+            ['git', 'clone', 'https://github.com/Anant-Navadiya/flask-boilerplate.git', '.'],
             cwd=project_root,
             check=True,
             capture_output=True,
@@ -176,9 +176,9 @@ def create_flask_project(project_name, source_folder, assets_folder):
         if sys.platform == "win32":
             venv_python = venv_dir / "Scripts" / "python.exe"
             venv_pip = venv_dir / "Scripts" / "pip.exe"
-        else:  # Unix-like (Linux, macOS)
-            venv_python = venv_dir / "bin" / "python"
-            venv_pip = venv_dir / "bin" / "pip"
+        else:
+            venv_python = venv_dir / "bin" / "python3"
+            venv_pip = venv_dir / "bin" / "pip3"
         if not venv_python.exists():
             print(f"❌ Error: Virtual environment Python executable not found at {venv_python}")
             return

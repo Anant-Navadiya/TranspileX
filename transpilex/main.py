@@ -11,10 +11,7 @@ from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import create_php_project
 from transpilex.frameworks.symfony import create_symfony_project
 
-# Constants
-SOURCE_FOLDER = './html'
-ASSETS_FOLDER = './assets'
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc']
+from config.base import SOURCE_FOLDER, ASSETS_FOLDER, SUPPORTED_FRAMEWORKS
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
