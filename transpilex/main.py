@@ -1,4 +1,9 @@
 import argparse
+from rich.console import Console
+from rich.panel import Panel
+from rich.columns import Columns
+from rich.text import Text
+from rich.markdown import Markdown
 
 from transpilex.frameworks.cakephp import create_cakephp_project
 from transpilex.frameworks.codeigniter import create_codeigniter_project
@@ -12,6 +17,7 @@ from transpilex.frameworks.php import create_php_project, PHPConverter
 from transpilex.frameworks.symfony import create_symfony_project
 
 from transpilex.config.base import SOURCE_FOLDER, ASSETS_FOLDER, SUPPORTED_FRAMEWORKS
+from transpilex.helpers.introduction import boot
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
@@ -37,17 +43,28 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
     else:
         print(f'Framework {framework_name} is not implemented yet')
 
+def run_generate(args):
+    process_framework(args.framework, args.project, args.src, args.assets)
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate given frameworks from HTML.")
-    parser.add_argument("project", help="Name of the project")
-    parser.add_argument("framework", choices=SUPPORTED_FRAMEWORKS, help="Name of the framework")
-    parser.add_argument("--src", default=SOURCE_FOLDER, help="Source HTML directory")
-    parser.add_argument("--assets", default=ASSETS_FOLDER, help="Assets directory")
+    parser = argparse.ArgumentParser(description="Transpilex CLI – Convert HTML into frameworks")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # generate command
+    generate_parser = subparsers.add_parser("generate", help="Generate code for a given framework")
+    generate_parser.add_argument("project", help="Name of the project")
+    generate_parser.add_argument("framework", choices=SUPPORTED_FRAMEWORKS, help="Target framework")
+    generate_parser.add_argument("--src", default=SOURCE_FOLDER, help="Source HTML directory")
+    generate_parser.add_argument("--assets", default=ASSETS_FOLDER, help="Assets directory")
+    generate_parser.set_defaults(func=run_generate)
+
+    # info command
+    info_parser = subparsers.add_parser("info", help="Show CLI branding and details")
+    info_parser.set_defaults(func=boot)
 
     args = parser.parse_args()
-
-    process_framework(args.framework, args.project, args.src, args.assets)
+    args.func(args)
 
 
 if __name__ == "__main__":
