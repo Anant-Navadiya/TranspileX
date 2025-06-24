@@ -8,16 +8,16 @@ from transpilex.frameworks.flask import create_flask_project
 from transpilex.frameworks.laravel import create_laravel_project
 from transpilex.frameworks.mvc import create_mvc_project
 from transpilex.frameworks.node import create_node_project
-from transpilex.frameworks.php import create_php_project
+from transpilex.frameworks.php import create_php_project, PHPConverter
 from transpilex.frameworks.symfony import create_symfony_project
 
-from config.base import SOURCE_FOLDER, ASSETS_FOLDER, SUPPORTED_FRAMEWORKS
+from transpilex.config.base import SOURCE_FOLDER, ASSETS_FOLDER, SUPPORTED_FRAMEWORKS
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
     """Process the selected framework"""
     framework_handlers = {
-        'php': lambda: create_php_project(project_name, source_folder, assets_folder),
+        # 'php': lambda: create_php_project(project_name, source_folder, assets_folder),
         'laravel': lambda: create_laravel_project(project_name, source_folder, assets_folder),
         'codeigniter': lambda: create_codeigniter_project(project_name, source_folder, assets_folder),
         'cakephp': lambda: create_cakephp_project(project_name, source_folder, assets_folder),
@@ -32,6 +32,8 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
     handler = framework_handlers.get(framework_name)
     if handler:
         handler()
+    elif framework_name == 'php':
+        PHPConverter(project_name)
     else:
         print(f'Framework {framework_name} is not implemented yet')
 

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='transpilex',
-    version='1.1.0',
+    version='1.1.2',
     description='Transpile HTML into given frameworks',
     author='Anant Navadiya',
     author_email='contact@anantnavadiya.com',
