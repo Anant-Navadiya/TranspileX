@@ -9,47 +9,48 @@ from transpilex.helpers.messages import Messenger
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
-from transpilex.config.base import PHP_SRC_FOLDER, PHP_EXTENSION, PHP_ASSETS_FOLDER, PHP_GULP_ASSET_PATH, \
-    SOURCE_FOLDER, PHP_DESTINATION_FOLDER, ASSETS_FOLDER
+from transpilex.config.base import PHP_SRC_FOLDER, PHP_EXTENSION, PHP_ASSETS_FOLDER, PHP_GULP_ASSETS_PATH, \
+    SOURCE_PATH, PHP_DESTINATION_FOLDER, ASSETS_PATH
 
 
 class PHPConverter:
 
-    def __init__(self, project_name, source_folder=SOURCE_FOLDER, destination_folder=PHP_DESTINATION_FOLDER,
-                 assets_folder=ASSETS_FOLDER):
+    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=PHP_DESTINATION_FOLDER,
+                 assets_path=ASSETS_PATH):
 
         self.project_name = project_name
-        self.source_folder = Path(source_folder)
-        self.destination_folder = Path(destination_folder)
-        self.assets_folder = Path(assets_folder)
+        self.source_path = Path(source_path)
+        self.destination_path = Path(destination_folder)
+        self.assets_path = Path(assets_path)
 
-        self.project_root = Path(PHP_DESTINATION_FOLDER) / project_name
-        self.project_src = self.project_root / PHP_SRC_FOLDER
-        self.project_assets_path = self.project_src / PHP_ASSETS_FOLDER
+        self.project_root = self.destination_path / project_name
+        self.project_src_path = self.project_root / PHP_SRC_FOLDER
+        self.project_assets_path = self.project_src_path / PHP_ASSETS_FOLDER
+
+        self.project_src_path.mkdir(parents=True, exist_ok=True)
 
         self.create_project()
 
     def create_project(self):
 
-        Messenger.info(f"Creating PHP project at: '{self.project_src}'...")
-        self.project_src.mkdir(parents=True, exist_ok=True)
+        Messenger.info(f"Creating PHP project at: '{self.project_src_path}'...")
 
-        change_extension_and_copy(PHP_EXTENSION, self.source_folder, self.project_src)
+        change_extension_and_copy(PHP_EXTENSION, self.source_path, self.project_src_path)
 
         self._convert()
 
-        copy_assets(self.assets_folder, self.project_assets_path)
+        copy_assets(self.assets_path, self.project_assets_path)
 
-        create_gulpfile_js(self.project_root, PHP_GULP_ASSET_PATH)
+        create_gulpfile_js(self.project_root, PHP_GULP_ASSETS_PATH)
 
-        # update_package_json(self.source_folder, self.project_root, self.project_name)
+        # update_package_json(self.source_path, self.project_root, self.project_name)
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
     def _convert(self):
         count = 0
 
-        for file in self.project_src.rglob("*"):
+        for file in self.project_src_path.rglob("*"):
             if file.is_file() and file.suffix == PHP_EXTENSION:
                 with open(file, "r", encoding="utf-8") as f:
                     content = f.read()
@@ -92,7 +93,7 @@ class PHPConverter:
                 if content != original_content:
                     with open(file, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print(f"🔁 Replaced includes in: {file}")
+                    Messenger.replaced(file)
                     count += 1
 
-        Messenger.success(f"Replaced includes in {count} PHP files in '{self.project_src}'.")
+        Messenger.success(f"Replaced includes in {count} PHP files in '{self.project_src_path}'.")

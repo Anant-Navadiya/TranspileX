@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import shutil
 
+from transpilex.helpers.messages import Messenger
+
 
 def change_extension_and_copy(new_extension, src_folder, dist_folder):
     """
@@ -15,7 +17,7 @@ def change_extension_and_copy(new_extension, src_folder, dist_folder):
     dist_path = Path(dist_folder)
 
     if not src_path.exists() or not src_path.is_dir():
-        print(f"❌ Source folder '{src_folder}' does not exist or is not a directory.")
+        Messenger.error(f"Source folder '{src_folder}' does not exist or is not a directory.")
         return
 
     if not new_extension.startswith('.'):
@@ -36,4 +38,4 @@ def change_extension_and_copy(new_extension, src_folder, dist_folder):
             print(f"✅ {file} → {destination}")
             count += 1
 
-    print(f"\n🎉 {count} files processed and saved in '{dist_folder}' with '{new_extension}' extension.")
+    Messenger.success(f"{count} files processed and saved in '{dist_folder}' with '{new_extension}' extension.")

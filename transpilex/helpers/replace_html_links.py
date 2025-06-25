@@ -26,7 +26,7 @@ def replace_html_links(content: str, new_extension: str) -> str:
                     final_url = "/"
                 return final_url
             else:
-                return temp_url_without_html + new_extension  # 🔧 fix here: no leading slash
+                return temp_url_without_html + new_extension
         else:
             return original_url
 

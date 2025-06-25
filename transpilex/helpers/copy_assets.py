@@ -1,7 +1,10 @@
 import shutil
 from pathlib import Path
 
-def copy_assets(source_path, destination_path, preserve=None):
+from transpilex.helpers.messages import Messenger
+
+
+def copy_assets(source_path: Path, destination_path: Path, preserve=None):
     """
     Cleans the destination_path (except for items listed in preserve),
     then copies assets from source_path to destination_path.
@@ -19,7 +22,8 @@ def copy_assets(source_path, destination_path, preserve=None):
     destination.mkdir(parents=True, exist_ok=True)
 
     # Step 1: Clean destination except preserved items
-    print(f"\n🧹 Cleaning '{destination}' (preserving: {preserve})")
+    Messenger.info(f"Cleaning '{destination}' (preserving: {preserve})")
+
     for item in destination.iterdir():
         if item.name in preserve:
             print(f"⏭️ Preserved: {item}")

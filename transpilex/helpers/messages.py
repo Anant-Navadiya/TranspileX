@@ -2,7 +2,7 @@ class Messenger:
 
     @staticmethod
     def info(message: str):
-        print(f"\nℹ️  {message}")
+        print(f"\nℹ️ {message}")
 
     @staticmethod
     def success(message: str):
@@ -17,8 +17,16 @@ class Messenger:
         print(f"\n❌ {message}")
 
     @staticmethod
+    def removed(message: str):
+        print(f"\n🗑️ {message}")
+
+    @staticmethod
     def replaced(file_path: str):
         print(f"\n🔁 Replaced includes in: {file_path}")
+
+    @staticmethod
+    def updated(file_path: str):
+        print(f"\n🔁 {file_path}")
 
     @staticmethod
     def completed(task: str, location: str):
