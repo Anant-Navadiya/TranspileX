@@ -1,10 +1,6 @@
 import argparse
-from rich.console import Console
-from rich.panel import Panel
-from rich.columns import Columns
-from rich.text import Text
-from rich.markdown import Markdown
 
+from transpilex.config.package import PACKAGE_VERSION
 from transpilex.frameworks.cakephp import create_cakephp_project
 from transpilex.frameworks.codeigniter import create_codeigniter_project
 from transpilex.frameworks.core import create_core_project
@@ -13,17 +9,16 @@ from transpilex.frameworks.flask import create_flask_project
 from transpilex.frameworks.laravel import create_laravel_project
 from transpilex.frameworks.mvc import create_mvc_project
 from transpilex.frameworks.node import create_node_project
-from transpilex.frameworks.php import create_php_project, PHPConverter
+from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.symfony import create_symfony_project
 
 from transpilex.config.base import SOURCE_FOLDER, ASSETS_FOLDER, SUPPORTED_FRAMEWORKS
-from transpilex.helpers.introduction import boot
+from transpilex.helpers.system_check import system_check
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
     """Process the selected framework"""
     framework_handlers = {
-        # 'php': lambda: create_php_project(project_name, source_folder, assets_folder),
         'laravel': lambda: create_laravel_project(project_name, source_folder, assets_folder),
         'codeigniter': lambda: create_codeigniter_project(project_name, source_folder, assets_folder),
         'cakephp': lambda: create_cakephp_project(project_name, source_folder, assets_folder),
@@ -43,12 +38,16 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
     else:
         print(f'Framework {framework_name} is not implemented yet')
 
+
 def run_generate(args):
     process_framework(args.framework, args.project, args.src, args.assets)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Transpilex CLI – Convert HTML into frameworks")
+
+    parser.add_argument('--version', action='version', version=PACKAGE_VERSION)
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # generate command
@@ -60,8 +59,8 @@ def main():
     generate_parser.set_defaults(func=run_generate)
 
     # info command
-    info_parser = subparsers.add_parser("info", help="Show CLI branding and details")
-    info_parser.set_defaults(func=boot)
+    info_parser = subparsers.add_parser("system-check", help="Show Prerequisites for all frameworks")
+    info_parser.set_defaults(func=system_check)
 
     args = parser.parse_args()
     args.func(args)

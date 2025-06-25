@@ -1,11 +1,13 @@
 from setuptools import setup, find_packages
 
+from transpilex.config.package import PACKAGE_NAME, PACKAGE_VERSION, PACKAGE_DESCRIPTION, PACKAGE_AUTHOR, PACKAGE_AUTHOR_EMAIL, PACKAGE_LICENSE
+
 setup(
-    name='transpilex',
-    version='1.1.2',
-    description='Transpile HTML into given frameworks',
-    author='Anant Navadiya',
-    author_email='contact@anantnavadiya.com',
+    name=PACKAGE_NAME,
+    version=PACKAGE_VERSION,
+    description=PACKAGE_DESCRIPTION,
+    author=PACKAGE_AUTHOR,
+    author_email=PACKAGE_AUTHOR_EMAIL,
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
@@ -40,5 +42,5 @@ setup(
             'transpile=transpilex.main:main',
         ],
     },
-    license='MIT',
+    license=PACKAGE_LICENSE,
 )
