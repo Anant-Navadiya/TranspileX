@@ -5,6 +5,7 @@ from transpilex.frameworks.cakephp import CakePHPConverter
 # from transpilex.frameworks.cakephp import create_cakephp_project
 from transpilex.frameworks.codeigniter import create_codeigniter_project
 from transpilex.frameworks.core import create_core_project
+from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.frameworks.django import create_django_project
 from transpilex.frameworks.flask import create_flask_project
 from transpilex.frameworks.laravel import create_laravel_project
@@ -38,6 +39,8 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
         PHPConverter(project_name)
     elif framework_name == 'cakephp':
         CakePHPConverter(project_name)
+    elif framework_name == 'core-to-mvc':
+        CoreToMvcConverter(project_name)
     else:
         print(f'Framework {framework_name} is not implemented yet')
 

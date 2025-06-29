@@ -2,7 +2,7 @@ SOURCE_PATH = "./html"
 
 ASSETS_PATH = "./assets"
 
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc']
+SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc','core-to-mvc']
 
 FILE_INCLUDE_PREFIX = '@@'
 FILE_INCLUDE_COMMAND = 'include'
@@ -22,3 +22,9 @@ CAKEPHP_EXTENSION = '.php'
 CAKEPHP_ASSETS_FOLDER = 'webroot'
 CAKEPHP_ASSETS_PRESERVE = ["index.php", ".htaccess"]
 CAKEPHP_GULP_ASSETS_PATH = './webroot'
+
+# MVC
+MVC_DESTINATION_FOLDER = 'mvc'
+MVC_ASSETS_FOLDER = 'wwwroot'
+MVC_EXTENSION = '.cshtml'
+MVC_GULP_ASSETS_PATH = './wwwroot'
