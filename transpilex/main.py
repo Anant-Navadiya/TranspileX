@@ -19,30 +19,31 @@ from transpilex.helpers.system_check import system_check
 
 
 def process_framework(framework_name, project_name, source_folder, assets_folder):
-    """Process the selected framework"""
-    framework_handlers = {
-        'laravel': lambda: create_laravel_project(project_name, source_folder, assets_folder),
-        'codeigniter': lambda: create_codeigniter_project(project_name, source_folder, assets_folder),
-        # 'cakephp': lambda: create_cakephp_project(project_name, source_folder, assets_folder),
-        'symfony': lambda: create_symfony_project(project_name, source_folder, assets_folder),
-        'node': lambda: create_node_project(project_name, source_folder, assets_folder),
-        'django': lambda: create_django_project(project_name, source_folder, assets_folder),
-        'flask': lambda: create_flask_project(project_name, source_folder, assets_folder),
-        'core': lambda: create_core_project(project_name, source_folder, assets_folder),
-        'mvc': lambda: create_mvc_project(project_name, source_folder, assets_folder),
+    def make_args_handler(func):
+        return lambda: func(project_name, source_folder, assets_folder)
+
+    def make_class_handler(cls):
+        return lambda: cls(project_name)
+
+    handlers = {
+        'laravel': make_args_handler(create_laravel_project),
+        'codeigniter': make_args_handler(create_codeigniter_project),
+        'symfony': make_args_handler(create_symfony_project),
+        'node': make_args_handler(create_node_project),
+        'django': make_args_handler(create_django_project),
+        'flask': make_args_handler(create_flask_project),
+        'core': make_args_handler(create_core_project),
+        'mvc': make_args_handler(create_mvc_project),
+        'php': make_class_handler(PHPConverter),
+        'cakephp': make_class_handler(CakePHPConverter),
+        'core-to-mvc': make_class_handler(CoreToMvcConverter),
     }
 
-    handler = framework_handlers.get(framework_name)
+    handler = handlers.get(framework_name)
     if handler:
         handler()
-    elif framework_name == 'php':
-        PHPConverter(project_name)
-    elif framework_name == 'cakephp':
-        CakePHPConverter(project_name)
-    elif framework_name == 'core-to-mvc':
-        CoreToMvcConverter(project_name)
     else:
-        print(f'Framework {framework_name} is not implemented yet')
+        print(f"Framework '{framework_name}' is not implemented yet.")
 
 
 def run_generate(args):
