@@ -15,7 +15,6 @@ setup(
         'arrow==1.3.0',
         'beautifulsoup4==4.13.4',
         'binaryornot==0.4.4',
-        'bs4==0.0.2',
         'certifi==2025.6.15',
         'chardet==5.2.0',
         'charset-normalizer==3.4.2',
