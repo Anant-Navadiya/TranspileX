@@ -67,22 +67,23 @@ class PHPConverter:
                     json_str = match.group(2)
                     try:
                         params = json.loads(json_str)
-                        # Convert JSON to PHP variable declarations
                         php_vars = ''.join([f"${k} = {json.dumps(v)}; " for k, v in params.items()])
                         php_path = path.replace(".html", PHP_EXTENSION)
                         return f"<?php {php_vars}include('{php_path}'); ?>"
-                    except json.JSONDecodeError:
-                        return match.group(0)  # Leave the original if JSON is malformed
+                    except json.JSONDecodeError as e:
+                        Messenger.warning(f"[JSON Error] in file {file.name}: {e}")
+                        return match.group(0)
 
+                # Replace includes with parameters
                 content = re.sub(
-                    r"""@@include\(['"](.+?\.html)['"]\s*,\s*(\{.*?\})\s*\)""",
+                    r"""@@include\(\s*["'](.+?\.html)["']\s*,\s*(\{[\s\S]*?\})\s*\)""",
                     include_with_params,
                     content
                 )
 
                 # Replace includes without parameters
                 content = re.sub(
-                    r"""@@include\(['"](.+?\.html)['"]\)""",
+                    r"""@@include\(\s*['"](.+?\.html)['"]\s*\)""",
                     lambda m: f"<?php include('{m.group(1).replace('.html', PHP_EXTENSION)}'); ?>",
                     content
                 )

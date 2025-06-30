@@ -52,25 +52,28 @@ def run_generate(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Transpilex CLI – Convert HTML into frameworks")
-
     parser.add_argument('--version', action='version', version=PACKAGE_VERSION)
 
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # CLI flags for system commands
+    parser.add_argument('--system-check', action='store_true', help="Show prerequisites for all frameworks")
+    parser.add_argument('--supported-frameworks', action='store_true', help="Show all supported frameworks")
 
-    # generate command
-    generate_parser = subparsers.add_parser("generate", help="Generate code for a given framework")
-    generate_parser.add_argument("project", help="Name of the project")
-    generate_parser.add_argument("framework", choices=SUPPORTED_FRAMEWORKS, help="Target framework")
-    generate_parser.add_argument("--src", default=SOURCE_PATH, help="Source HTML directory")
-    generate_parser.add_argument("--assets", default=ASSETS_PATH, help="Assets directory")
-    generate_parser.set_defaults(func=run_generate)
-
-    # info command
-    info_parser = subparsers.add_parser("system-check", help="Show Prerequisites for all frameworks")
-    info_parser.set_defaults(func=system_check)
+    # Default positional args for project generation
+    parser.add_argument("project", nargs='?', help="Name of the project")
+    parser.add_argument("framework", nargs='?', choices=SUPPORTED_FRAMEWORKS, help="Target framework")
+    parser.add_argument("--src", default=SOURCE_PATH, help="Source HTML directory")
+    parser.add_argument("--assets", default=ASSETS_PATH, help="Assets directory")
 
     args = parser.parse_args()
-    args.func(args)
+
+    if args.system_check:
+        system_check(args)
+    elif args.supported_frameworks:
+        print("✔ Supported frameworks:\n- " + "\n- ".join(SUPPORTED_FRAMEWORKS))
+    elif args.project and args.framework:
+        run_generate(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
