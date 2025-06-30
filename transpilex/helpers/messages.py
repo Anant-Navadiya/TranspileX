@@ -30,4 +30,4 @@ class Messenger:
 
     @staticmethod
     def completed(task: str, location: str):
-        print(f"\n🎉 {task} complete at: {location}")
+        print(f"\n🎉 {task} completed at: {location}")

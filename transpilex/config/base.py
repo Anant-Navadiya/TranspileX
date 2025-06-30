@@ -24,6 +24,7 @@ CAKEPHP_ASSETS_PRESERVE = ["index.php", ".htaccess"]
 CAKEPHP_GULP_ASSETS_PATH = './webroot'
 
 # MVC
+MVC_PROJECT_CREATION_COMMAND = 'dotnet new mvc -n'
 MVC_DESTINATION_FOLDER = 'mvc'
 MVC_ASSETS_FOLDER = 'wwwroot'
 MVC_EXTENSION = '.cshtml'
