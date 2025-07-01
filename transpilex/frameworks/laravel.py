@@ -19,7 +19,7 @@ def add_routes_web_file(project_root):
     # Ensure the 'routes' directory exists
     routes_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-    routes_content = """<?php
+    routes_content = r"""<?php
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\RoutingController;
@@ -49,7 +49,7 @@ def add_routing_controller_file(project_root):
     # Ensure the controller directory exists
     controller_dir.mkdir(parents=True, exist_ok=True)
 
-    controller_content = """<?php
+    controller_content = r"""<?php
 
 namespace App\Http\Controllers;
 

@@ -67,14 +67,30 @@ class HomeController extends AbstractController
         print(f"❌ Error writing to {controller_file_path}: {e}")
 
 
-def extract_json_from_include(include_str):
-    try:
-        match = re.search(r'\{.*\}', include_str)
-        if match:
-            json_text = match.group().replace("'", '"')
-            return json.loads(json_text)
-    except Exception:
-        pass
+def extract_json_from_include(include_string):
+    """
+    Extracts JSON-like dictionary string from an include statement.
+    Example: "{'title': 'Dashboard', 'subtitle': 'Welcome'}"
+    """
+    match = re.search(r'{(\s*[\'"].*?:\s*[\'"].*?[\'"]\s*(?:,\s*[\'"].*?:\s*[\'"].*?[\'"])*\s*)}', include_string)
+    if match:
+        json_str = match.group(1).replace("'", "\"") # Replace single quotes with double quotes for valid JSON
+        try:
+            # This is a simplified parsing. For complex cases, consider a proper JSON parser.
+            # A safer way would be to use ast.literal_eval if the input is guaranteed safe.
+            # For this example, we'll manually parse a simple key-value structure.
+            data = {}
+            pairs = json_str.split(',')
+            for pair in pairs:
+                if ':' in pair:
+                    key, value = pair.split(':', 1)
+                    key = key.strip().strip('"')
+                    value = value.strip().strip('"')
+                    data[key] = value
+            return data
+        except Exception as e:
+            print(f"Error parsing JSON from include: {e}")
+            return {}
     return {}
 
 
@@ -93,7 +109,7 @@ def convert_to_symfony_twig(dist_folder):
             # Extract title from title-meta include (from original HTML)
             # Assuming @@include('./partials/title-meta.html', {'title': '...' }) syntax
             title_meta_match = re.search(r'@@include\(["\']\.\/partials\/title-meta\.html["\']\s*,\s*({.*?})\)',
-                                         content)
+                                         content, re.DOTALL) # Added re.DOTALL
             twig_title_block = ""
             if title_meta_match:
                 meta_data = extract_json_from_include(title_meta_match.group())
@@ -109,32 +125,49 @@ def convert_to_symfony_twig(dist_folder):
             script_tags = soup.find_all("script")
             scripts_html = "\n".join(f"    {str(tag)}" for tag in script_tags)
 
-            # Locate content with data-content
+            # --- MODIFIED LOGIC START ---
+            inner_html = ""
+            content_source = ""
+
             content_div = soup.find(attrs={"data-content": True})
-            if not content_div:
-                print(f"⚠️ Skipping '{file.name}': no data-content found.")
-                continue
-            inner_html = content_div.decode_contents()
+            if content_div:
+                inner_html = content_div.decode_contents()
+                content_source = "data-content"
+            else:
+                body_tag = soup.find("body")
+                if body_tag:
+                    inner_html = body_tag.decode_contents()
+                    content_source = "body"
+                else:
+                    # If neither data-content nor body is found, use the entire file content
+                    inner_html = content
+                    content_source = "entire file (no data-content or body found)"
+
+            print(f"Content source for '{file.name}': {content_source}")
+            # --- MODIFIED LOGIC END ---
 
             # Replace page-title include (from original HTML) with Twig include
             # @@include('./partials/page-title.html', {'title': '...', 'subtitle': '...'})
             page_title_match = re.search(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\']\s*,\s*({.*?})\s*\)',
-                                         inner_html)
+                                         inner_html, re.DOTALL) # Added re.DOTALL
             if page_title_match:
                 page_data = extract_json_from_include(page_title_match.group())
-                page_title = page_data.get("title", "").strip()
-                subtitle = page_data.get("subtitle", "").strip()
 
-                # Format for Twig include syntax
-                twig_page_title_include = f"{{{{ include('partials/page-title.html.twig', {{subTitle: '{subtitle}', title: '{page_title}'}}) }}}}"
+                # Dynamically construct the parameters for the Twig include
+                twig_params = []
+                for key, value in page_data.items():
+                    # Ensure values are properly quoted for Twig string literals
+                    twig_params.append(f"{key}: '{value}'")
+
+                twig_page_title_include = f"{{{{ include('partials/page-title.html.twig', {{{', '.join(twig_params)}}}) }}}}"
                 inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\']\s*,\s*{.*?}\s*\)',
-                                    twig_page_title_include, inner_html)
+                                    twig_page_title_include, inner_html, flags=re.DOTALL) # Added re.DOTALL
             else:
                 # Clean up any leftover partials include if no match for page-title
-                inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\'].*?\)', '', inner_html)
+                inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\'].*?\)', '', inner_html, flags=re.DOTALL) # Added re.DOTALL
 
             # Remove @@include('./partials/footer.html') from inner_html
-            inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/footer\.html["\'].*?\)', '', inner_html)
+            inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/footer\.html["\'].*?\)', '', inner_html, flags=re.DOTALL) # Added re.DOTALL
 
             content_section = inner_html.strip()
 
@@ -159,7 +192,7 @@ def convert_to_symfony_twig(dist_folder):
             twig_output = clean_relative_asset_paths(twig_output)
 
             # replace .html
-            content = replace_html_links(content, '')
+            twig_output = replace_html_links(twig_output, '') # Apply to twig_output, not original content
 
             with open(file, "w", encoding="utf-8") as f:
                 f.write(twig_output.strip() + "\n")
@@ -177,17 +210,17 @@ def create_symfony_project(project_name, source_folder, assets_folder):
 
     # Create the Symfony project using Composer
     print(f"📦 Creating Symfony project '{project_root}'...")
-    try:
-        subprocess.run(
-            f'symfony new {project_root} --version="7.3.x-dev" --webapp',
-            shell=True,
-            check=True
-        )
-        print("✅ Symfony project created successfully.")
-
-    except subprocess.CalledProcessError:
-        print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
-        return
+    # try:
+    #     subprocess.run(
+    #         f'symfony new {project_root} --version="7.3.x-dev" --webapp',
+    #         shell=True,
+    #         check=True
+    #     )
+    #     print("✅ Symfony project created successfully.")
+    #
+    # except subprocess.CalledProcessError:
+    #     print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
+    #     return
 
     # Copy the source file and change extensions
     pages_path = project_root / "templates"
@@ -197,7 +230,7 @@ def create_symfony_project(project_name, source_folder, assets_folder):
 
     convert_to_symfony_twig(pages_path)
 
-    add_home_controller_file(project_root)
+    # add_home_controller_file(project_root)
 
     # Copy assets to webroot while preserving required files
     assets_path = project_root / "public"

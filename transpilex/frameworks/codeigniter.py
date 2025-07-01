@@ -3,12 +3,57 @@ import json
 import subprocess
 from pathlib import Path
 
+from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, CODEIGNITER_DESTINATION_FOLDER, CODEIGNITER_ASSETS_FOLDER, \
+    CODEIGNITER_PROJECT_CREATION_COMMAND, CODEIGNITER_EXTENSION, CODEIGNITER_ASSETS_PRESERVE, \
+    CODEIGNITER_GULP_ASSETS_PATH
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.messages import Messenger
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
+
+class CodeIgniterConverter:
+
+    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=CODEIGNITER_DESTINATION_FOLDER,
+                 assets_path=ASSETS_PATH):
+        self.project_name = project_name
+        self.source_path = Path(source_path)
+        self.destination_path = Path(destination_folder)
+        self.assets_path = Path(assets_path)
+
+        self.project_root = self.destination_path / project_name
+        self.project_assets_path = self.project_root / CODEIGNITER_ASSETS_FOLDER
+        self.project_views_path = Path(self.project_root / "app" / "Views")
+        self.project_element_path = Path(self.project_root / "templates" / "element")
+        self.project_pages_controller_path = Path(self.project_root / "src" / "Controller" / "PagesController.php")
+        self.project_routes_path = Path(self.project_root / "config" / "routes.php")
+
+        self.create_project()
+
+    def create_project(self):
+
+        Messenger.info(f"Creating Codeigniter project at: '{self.project_root}'...")
+
+        self.project_root.mkdir(parents=True, exist_ok=True)
+
+        try:
+            subprocess.run(f'{CODEIGNITER_PROJECT_CREATION_COMMAND} {self.project_root}', shell=True, check=True)
+            Messenger.success(f"Codeigniter project created.")
+        except subprocess.CalledProcessError:
+            Messenger.error(f"Codeigniter project creation failed.")
+            return
+
+        change_extension_and_copy(CODEIGNITER_EXTENSION, self.source_path, self.project_views_path)
+
+        copy_assets(self.assets_path, self.project_assets_path, preserve=CODEIGNITER_ASSETS_PRESERVE)
+
+        create_gulpfile_js(self.project_root, CODEIGNITER_GULP_ASSETS_PATH)
+
+        # update_package_json(self.source_path, self.project_root, self.project_name)
+
+        Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
 
 def convert_to_codeigniter(dist_folder):
@@ -109,7 +154,7 @@ def add_home_controller(controller_path):
     try:
         if controller_path.exists():
             with open(controller_path, "w", encoding="utf-8") as f:
-                f.write('''<?php
+                f.write(r'''<?php
 
     namespace App\Controllers;
 

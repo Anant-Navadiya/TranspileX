@@ -2,7 +2,8 @@ SOURCE_PATH = "./html"
 
 ASSETS_PATH = "./assets"
 
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc','core-to-mvc']
+SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'codeigniter', 'cakephp', 'symfony', 'node', 'django', 'flask', 'core', 'mvc',
+                        'core-to-mvc']
 
 FILE_INCLUDE_PREFIX = '@@'
 FILE_INCLUDE_COMMAND = 'include'
@@ -22,6 +23,14 @@ CAKEPHP_EXTENSION = '.php'
 CAKEPHP_ASSETS_FOLDER = 'webroot'
 CAKEPHP_ASSETS_PRESERVE = ["index.php", ".htaccess"]
 CAKEPHP_GULP_ASSETS_PATH = './webroot'
+
+# CodeIgniter
+CODEIGNITER_PROJECT_CREATION_COMMAND = 'composer create-project codeigniter4/appstarter'
+CODEIGNITER_DESTINATION_FOLDER = 'codeigniter'
+CODEIGNITER_EXTENSION = '.php'
+CODEIGNITER_ASSETS_FOLDER = 'public'
+CODEIGNITER_ASSETS_PRESERVE = ["index.php", ".htaccess", "manifest.json", "robots.txt"]
+CODEIGNITER_GULP_ASSETS_PATH = './public'
 
 # MVC
 MVC_PROJECT_CREATION_COMMAND = 'dotnet new mvc -n'
