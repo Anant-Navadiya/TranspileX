@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import subprocess
@@ -9,7 +10,9 @@ from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.messages import Messenger
+from transpilex.helpers.move_files import move_files
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
@@ -25,7 +28,8 @@ class CakePHPConverter:
         self.project_root = self.destination_path / project_name
         self.project_assets_path = self.project_root / CAKEPHP_ASSETS_FOLDER
         self.project_pages_path = Path(self.project_root / "templates" / "Pages")
-        self.project_pages_controller_path = Path(self.project_root / "controllers" / "PagesController.php")
+        self.project_element_path = Path(self.project_root / "templates" / "element")
+        self.project_pages_controller_path = Path(self.project_root / "src" / "Controller" / "PagesController.php")
         self.project_routes_path = Path(self.project_root / "config" / "routes.php")
 
         self.create_project()
@@ -43,11 +47,18 @@ class CakePHPConverter:
             Messenger.error(f"CakePHP project creation failed.")
             return
 
+        empty_folder_contents(self.project_pages_path)
+
         change_extension_and_copy(CAKEPHP_EXTENSION, self.source_path, self.project_pages_path)
 
-        self._convert()
+        self._convert(self.project_pages_path)
 
-        self.project_pages_path.mkdir(parents=True, exist_ok=True)
+        partials_path = self.project_pages_path / 'partials'
+        if partials_path.exists() and partials_path.is_dir():
+            move_files(partials_path, self.project_element_path)
+            self._convert(self.project_element_path)
+
+        self._rename_hyphens_to_underscores()
 
         self._add_root_method_to_app_controller()
 
@@ -61,18 +72,18 @@ class CakePHPConverter:
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
-    def _convert(self):
+    def _convert(self, directory: Path):
         count = 0
 
-        for file in self.project_pages_path.rglob("*.php"):
+        for file in directory.rglob("*.php"):
             content = file.read_text(encoding="utf-8")
             original_content = content
 
-            # Skip files without any @@include or .html reference
             if "@@include" not in content and ".html" not in content:
                 continue
 
-            def with_params(match):
+            # === Handle @@include with parameters ===
+            def include_with_params(match):
                 file_path = match.group(1).strip()
                 param_json = match.group(2).strip()
                 try:
@@ -82,28 +93,39 @@ class CakePHPConverter:
                     ) + ")"
                     view_name = Path(file_path).stem
                     return f'<?= $this->element("{view_name}", {php_array}) ?>'
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    Messenger.warning(f"[JSON Error] in file {file.name}: {e}")
                     return match.group(0)
 
-            def no_params(match):
+            # === Handle @@include without parameters ===
+            def include_no_params(match):
                 view_name = Path(match.group(1).strip()).stem
                 return f'<?= $this->element("{view_name}") ?>'
 
-            content = re.sub(r"@@include\(['\"](.+?\.html)['\"]\s*,\s*(\{.*?\})\)", with_params, content)
-            content = re.sub(r"@@include\(['\"](.+?\.html)['\"]\)", no_params, content)
+            # Replace @@include(...) with CakePHP includes
+            content = re.sub(
+                r"""@@include\(\s*["']([^"']+?\.html)["']\s*,\s*(\{[\s\S]*?\})\s*\)""",
+                include_with_params,
+                content,
+                flags=re.DOTALL,
+            )
 
-            # replace .html with .php in anchor
+            content = re.sub(
+                r"""@@include\(\s*["']([^"']+?\.html)["']\s*\)""",
+                include_no_params,
+                content,
+            )
+
+            # Replace .html links and clean asset paths
             content = replace_html_links(content, '')
-
-            # remove assets from links, scripts
             content = clean_relative_asset_paths(content)
 
             if content != original_content:
                 file.write_text(content, encoding="utf-8")
-                Messenger.updated(f"Updated includes in: {file}")
+                Messenger.updated(f"Updated: {file}")
                 count += 1
 
-        Messenger.success(f"{count} files updated with CakePHP includes.")
+        Messenger.success(f"{count} files updated in: {directory}")
 
     def _add_root_method_to_app_controller(self):
 
@@ -117,17 +139,17 @@ class CakePHPConverter:
             return
 
         method_code = """
-        public function root($path): Response
-        {
-            try {
-                return $this->render($path);
-            } catch (MissingTemplateException $exception) {
-                if (Configure::read('debug')) {
-                    throw $exception;
-                }
-                throw new NotFoundException();
+    public function root($path): Response
+    {
+        try {
+            return $this->render($path);
+        } catch (MissingTemplateException $exception) {
+            if (Configure::read('debug')) {
+                throw $exception;
             }
+            throw new NotFoundException();
         }
+    }
     """
         updated = re.sub(r"^\}\s*$", method_code + "\n}", content, flags=re.MULTILINE)
         self.project_pages_controller_path.write_text(updated, encoding="utf-8")
@@ -151,3 +173,32 @@ class CakePHPConverter:
             Messenger.updated("Updated routes.php with custom routing.")
         else:
             Messenger.warning("Expected line not found. Skipping patch.")
+
+    def _rename_hyphens_to_underscores(self, ignore_list=None):
+        if ignore_list is None:
+            ignore_list = []
+
+        for dirpath, dirnames, filenames in os.walk(self.project_pages_path, topdown=False):
+            # Rename files
+            for name in filenames:
+                if name in ignore_list:
+                    continue
+                if "-" in name:
+                    src = Path(dirpath) / name
+                    dst_name = name.replace("-", "_")
+                    if dst_name in ignore_list:
+                        continue
+                    dst = Path(dirpath) / dst_name
+                    src.rename(dst)
+
+            # Rename directories
+            for name in dirnames:
+                if name in ignore_list:
+                    continue
+                if "-" in name:
+                    src = Path(dirpath) / name
+                    dst_name = name.replace("-", "_")
+                    if dst_name in ignore_list:
+                        continue
+                    dst = Path(dirpath) / dst_name
+                    src.rename(dst)

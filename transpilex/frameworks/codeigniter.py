@@ -14,71 +14,94 @@ from transpilex.helpers.update_package_json import update_package_json
 def convert_to_codeigniter(dist_folder):
     """
     Replace @@include() with CodeIgniter-style view syntax in .php files.
-
-    Examples:
-    - @@include('./partials/head-css.html')
-      → <?= $this->include('partials/head-css') ?>
-
-    - @@include('./partials/page-title.html', {"title": "Calendar"})
-      → <?php echo view("partials/page-title", array("title" => "Calendar")) ?>
+    Correctly handles both JSON and 'array(...)' parameters, and optional '.html' in paths.
+    Ensures all .php files are processed for HTML link and asset path cleaning.
     """
     dist_path = Path(dist_folder)
     count = 0
 
-    for file in dist_path.rglob("*"):
-        if file.is_file() and file.suffix == ".php":
+    for file in dist_path.rglob("*.php"):
+        if file.is_file():
             with open(file, "r", encoding="utf-8") as f:
                 content = f.read()
 
             original_content = content
 
-            # Skip files without any @@include or .html reference
-            if "@@include" not in content and ".html" not in content:
-                continue
+            # --- Helper functions for replacements ---
 
-            # Handle includes with parameters
-            def with_params(match):
-                html_path = match.group(1).strip()
-                param_json = match.group(2).strip()
+            # Handles @@include with JSON parameters: {"key": "value"}
+            def include_with_json_params(match):
+                file_path = match.group(1).strip()
+                param_json_str = match.group(2).strip()
                 try:
-                    params = json.loads(param_json)
+                    params = json.loads(param_json_str)
                     php_array = "array(" + ", ".join(
                         [f'"{k}" => {json.dumps(v)}' for k, v in params.items()]
                     ) + ")"
-                    view_path = html_path.replace(".html", "").lstrip("./")
-                    return f'<?php echo view("{view_path}", {php_array}) ?>'
-                except json.JSONDecodeError:
-                    return match.group(0)  # keep unchanged if JSON invalid
+                    view_name = Path(file_path).stem  # Get base name without extension
+                    return f'<?php echo view("{view_name}", {php_array}) ?>'
+                except json.JSONDecodeError as e:
+                    print(f"⚠️ JSON decode error in @@include for file {file.name}: {e}\nContent: {match.group(0)}")
+                    return match.group(0)  # Return original match on error
 
-            # Handle plain includes (no parameters)
-            def no_params(match):
-                html_path = match.group(1).strip()
-                view_path = html_path.replace(".html", "").lstrip("./")
-                return f"<?= $this->include('{view_path}') ?>"
+            # Handles @@include with PHP array parameters: array("key" => "value")
+            def include_with_array_params(match):
+                file_path = match.group(1).strip()
+                php_array_str = match.group(2).strip()  # Capture the full PHP array string
 
-            # First, replace includes with parameters
+                view_name = Path(file_path).stem  # Get base name without extension
+
+                # Directly insert the captured PHP array string into the view() call
+                return f'<?php echo view("{view_name}", {php_array_str}) ?>'
+
+            # Handles @@include without parameters
+            def include_no_params(match):
+                file_path = match.group(1).strip()
+                view_name = Path(file_path).stem  # Get base name without extension
+                return f"<?= $this->include('{view_name}') ?>"
+
+            # --- Apply replacements in order ---
+
+            # 1. Replace @@include with JSON parameters (optional .html in path)
+            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+            # Match params: (\{[\s\S]*?\}) - matches JSON object, including newlines
             content = re.sub(
-                r"""@@include\(['"](.+?\.html)['"]\s*,\s*(\{.*?\})\s*\)""", with_params, content
+                r"""@@include\(['"]([^"']+)['"]\s*,\s*(\{[\s\S]*?\})\s*\)""",
+                include_with_json_params,
+                content,
+                flags=re.DOTALL
             )
 
-            # Then, replace includes without parameters
+            # 2. Replace @@include with PHP array parameters (optional .html in path)
+            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+            # Match params: (array\(.*?\)) - matches array(...)
             content = re.sub(
-                r"""@@include\(['"](.+?\.html)['"]\)""", no_params, content
+                r"""@@include\(['"]([^"']+)['"]\s*,\s*(array\(.*?\))\s*\)""",
+                include_with_array_params,
+                content,
+                flags=re.DOTALL
             )
 
-            # replace .html
+            # 3. Replace @@include without parameters (optional .html in path)
+            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+            content = re.sub(
+                r"""@@include\(['"]([^"']+)['"]\s*\)""",
+                include_no_params,
+                content
+            )
+
+            # ALWAYS replace .html links and clean asset paths for every file
+            # (The problematic 'continue' condition has been removed from here as discussed previously)
             content = replace_html_links(content, '')
-
-            # remove assets from links, scripts
             content = clean_relative_asset_paths(content)
 
             if content != original_content:
                 with open(file, "w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"🔁 Updated CodeIgniter includes in: {file}")
+                print(f"🔁 Updated CodeIgniter syntax, links, and/or assets in: {file}")
                 count += 1
 
-    print(f"\n✅ {count} files updated with CodeIgniter includes.")
+    print(f"\n✅ {count} files processed and updated for CodeIgniter compatibility.")
 
 
 def add_home_controller(controller_path):
