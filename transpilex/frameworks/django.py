@@ -10,36 +10,69 @@ from transpilex.helpers import copy_assets, change_extension_and_copy
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 
 
-def replace_page_title_include(content):
-    # This version matches single or double quotes and captures flexible spacing
-    pattern = r'@@include\(\s*[\'"]\.\/partials\/page-title\.html[\'"]\s*,\s*(\{.*?\})\s*\)'
-
-    def replacer(match):
-        data = extract_json_from_include(match.group(1))  # match.group(1) gives the JSON directly
-        title = data.get("title", "").strip()
-        subtitle = data.get("subtitle", "").strip()
-        return format_django_include(title=title, subtitle=subtitle)
-
-    return re.sub(pattern, replacer, content)
-
-
 def extract_json_from_include(json_str):
     try:
         json_text = json_str.replace("'", '"')
         return json.loads(json_text)
     except Exception:
-        return {}
+        return None  # None means keep original
 
-
-def format_django_include(title=None, subtitle=None):
+def format_django_include_dynamic(context_dict):
     parts = []
-    if title:
-        parts.append(f"title='{title}'")
-    if subtitle:
-        parts.append(f"subtitle='{subtitle}'")
-    if parts:
-        return f"{{% include 'partials/page-title.html' with {' '.join(parts)} %}}"
-    return ""
+    for key, value in context_dict.items():
+        if isinstance(value, str):
+            val = f"'{value}'"
+        elif isinstance(value, (int, float, bool)):
+            val = str(value).lower() if isinstance(value, bool) else str(value)
+        elif value is None:
+            val = "None"
+        else:
+            continue
+        parts.append(f"{key}={val}")
+    return f"{{% include 'partials/page-title.html' with {' '.join(parts)} %}}"
+
+def find_balanced_json(text, start_index):
+    """Extracts a balanced JSON block starting from the given index."""
+    brace_count = 0
+    end_index = start_index
+    while end_index < len(text):
+        char = text[end_index]
+        if char == '{':
+            brace_count += 1
+        elif char == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                return text[start_index:end_index + 1], end_index + 1
+        end_index += 1
+    return None, start_index
+
+def replace_page_title_include(content):
+    pattern = r'@@include\(\s*[\'"](?:\.\/)?partials/page-title\.html[\'"]\s*,\s*'
+
+    result = []
+    index = 0
+
+    for match in re.finditer(pattern, content):
+        result.append(content[index:match.start()])
+        json_start = match.end()
+        json_str, next_index = find_balanced_json(content, json_start)
+
+        if json_str:
+            try:
+                data = json.loads(json_str.replace("'", '"'))
+                replacement = format_django_include_dynamic(data)
+                result.append(replacement)
+            except Exception as e:
+                print(f"⚠️ Failed to parse JSON in page-title include: {e}")
+                result.append(content[match.start():next_index])
+        else:
+            print("⚠️ Could not find balanced JSON block.")
+            result.append(content[match.start():json_start])
+
+        index = next_index
+
+    result.append(content[index:])
+    return ''.join(result)
 
 
 def clean_static_paths(html):
@@ -90,37 +123,56 @@ def replace_html_links_with_django_urls(html_content):
 def convert_to_django_templates(folder):
     base_path = Path(folder)
     count = 0
+
     for file in base_path.rglob("*.html"):
         print(f"Processing: {file.relative_to(base_path)}")
         with open(file, "r", encoding="utf-8") as f:
             content = f.read()
+
+        # Replace page-title includes
         content = replace_page_title_include(content)
+
+        # Extract layout title from title-meta
         title_meta_match = re.search(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', content)
         layout_title = "Untitled"
         if title_meta_match:
             meta_data = extract_json_from_include(title_meta_match.group(1))
             layout_title = meta_data.get("title", "Untitled").strip()
             content = re.sub(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', '', content)
+
+        # Clean static and links
         content = clean_static_paths(content)
         content = replace_html_links_with_django_urls(content)
+
+        # Parse the soup
         soup = BeautifulSoup(content, "html.parser")
-        is_layout = bool(soup.find("html") or soup.find(attrs={"data-content": True}))
+
+        # Flexible layout detection: body or data-content
+        is_layout = bool(soup.find("body") or soup.find(attrs={"data-content": True}))
+
         if is_layout:
-            soup_for_extraction = BeautifulSoup(content, "html.parser")
-            head_tag = soup_for_extraction.find("head")
-            links_html = "\n".join(str(tag) for tag in head_tag.find_all("link")) if head_tag else "\n".join(str(tag) for tag in soup_for_extraction.find_all("link"))
-            scripts_html = "\n".join(str(tag) for tag in soup_for_extraction.find_all("script"))
-            content_div = soup_for_extraction.find(attrs={"data-content": True})
+            head_tag = soup.find("head")
+            links_html = "\n".join(str(tag) for tag in head_tag.find_all("link")) if head_tag else ""
+
+            # Collect scripts (full soup)
+            scripts_html = "\n".join(str(tag) for tag in soup.find_all("script"))
+
+            # Extract main content: data-content > body > None
+            content_section = None
+            content_div = soup.find(attrs={"data-content": True})
             if content_div:
-                content_section = content_div.decode_contents().strip()
-            elif soup_for_extraction.body:
-                content_section = soup_for_extraction.body.decode_contents().strip()
-            else:
-                print("✅ Fallback: using cleaned raw content")
-                cleaned_content = re.sub(r"@@include\([^)]+\)", "", content)
-                temp_soup = BeautifulSoup(cleaned_content, "html.parser")
-                content_section = temp_soup.decode_contents().strip()
-            django_template = f"""{{% extends 'vertical.html' %}}
+                div_clone = BeautifulSoup(str(content_div), "html.parser")
+                for script_tag in div_clone.find_all("script"):
+                    script_tag.decompose()
+                content_section = div_clone.decode_contents().strip()
+            elif soup.body:
+                body_clone = BeautifulSoup(str(soup.body), "html.parser")
+                for script_tag in body_clone.find_all("script"):
+                    script_tag.decompose()
+                content_section = body_clone.body.decode_contents().strip()
+
+            if content_section:
+                django_template = f"""{{% extends 'vertical.html' %}}
 
 {{% load static i18n %}}
 
@@ -136,15 +188,21 @@ def convert_to_django_templates(folder):
 
 {{% block scripts %}}
 {scripts_html}
-{{% endblock scripts %}}
-"""
-            final_output = re.sub(r"@@include\([^)]+\)", "", django_template.strip())
+{{% endblock scripts %}}"""
+                final_output = re.sub(r"@@include\([^)]+\)", "", django_template.strip())
+            else:
+                print("⚠️ No data-content or body found. Keeping original content.")
+                final_output = re.sub(r"@@include\([^)]+\)", "", content.strip())
         else:
+            # Not a layout
             final_output = re.sub(r"@@include\([^)]+\)", "", content.strip())
+
         with open(file, "w", encoding="utf-8") as f:
             f.write(final_output + "\n")
+
         print(f"✅ Processed: {file.relative_to(base_path)}")
         count += 1
+
     print(f"\n✨ {count} templates (layouts + partials) converted successfully.")
 
 

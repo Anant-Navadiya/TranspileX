@@ -1,15 +1,20 @@
 import re
 import json
+import shutil
 import subprocess
 from pathlib import Path
 import os
 from bs4 import BeautifulSoup
-from cookiecutter.main import cookiecutter
+import stat
 import sys
 
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.replace_html_links import replace_html_links
 
+
+def force_remove_readonly(func, path, excinfo):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 def replace_page_title_include(content):
     # This version matches single or double quotes and captures flexible spacing
@@ -162,6 +167,11 @@ def create_flask_project(project_name, source_folder, assets_folder):
         )
 
         print("✅ Flask project created successfully.")
+
+        git_folder = project_root / ".git"
+        if git_folder.exists() and git_folder.is_dir():
+            shutil.rmtree(git_folder, onerror=force_remove_readonly)
+            print("🧹 Removed .git folder from cloned project.")
 
     except subprocess.CalledProcessError:
         print("❌ Error: Could not create Flask project. Make sure Composer and PHP are set up correctly.")
