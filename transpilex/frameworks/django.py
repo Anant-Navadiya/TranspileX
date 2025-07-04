@@ -7,6 +7,7 @@ from cookiecutter.main import cookiecutter
 import sys
 
 from transpilex.helpers import copy_assets, change_extension_and_copy
+from transpilex.helpers.empty_folder_contents import empty_folder_contents
 
 
 def replace_page_title_include(content):
@@ -87,62 +88,38 @@ def replace_html_links_with_django_urls(html_content):
 
 
 def convert_to_django_templates(folder):
-    """
-    Converts HTML files in a given folder to Django template format,
-    handling @@includes, static file paths, and HTML link replacements.
-    """
     base_path = Path(folder)
     count = 0
-
     for file in base_path.rglob("*.html"):
         print(f"Processing: {file.relative_to(base_path)}")
         with open(file, "r", encoding="utf-8") as f:
             content = f.read()
-
-        # Step 1: Handle @@include directives
-        # First, page-title.html which has JSON data
         content = replace_page_title_include(content)
-
-        # Handle @@include('./partials/title-meta.html', {...}) for layout title
-        # This regex needs to capture the JSON part for title extraction.
-        # We process it here to get the layout_title, and then remove it from content.
-        title_meta_match = re.search(r'@@include\(["\']\.\/partials\/title-meta\.html["\']\s*,\s*({.*?})\)', content)
-        layout_title = "Untitled"  # Default title
+        title_meta_match = re.search(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', content)
+        layout_title = "Untitled"
         if title_meta_match:
-            meta_data = extract_json_from_include(title_meta_match.group(1))  # Capture group 1 is the JSON
+            meta_data = extract_json_from_include(title_meta_match.group(1))
             layout_title = meta_data.get("title", "Untitled").strip()
-            # Remove the @@include for title-meta, as its content is integrated into {% block title %}
-            content = re.sub(r'@@include\(["\']\.\/partials\/title-meta\.html["\']\s*,\s*({.*?})\)', '', content)
-
-        # Step 2: Clean all asset paths (e.g., images, scripts, stylesheets)
+            content = re.sub(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', '', content)
         content = clean_static_paths(content)
-
-        # Step 3: Replace .html links with Django {% url %} tags
         content = replace_html_links_with_django_urls(content)
-
-        # Now, determine if it's a layout file or a partial and format accordingly
         soup = BeautifulSoup(content, "html.parser")
         is_layout = bool(soup.find("html") or soup.find(attrs={"data-content": True}))
-
         if is_layout:
-            # Extract assets and content for layout structure
-            # Re-parse with BeautifulSoup after all string replacements for accurate tag finding
             soup_for_extraction = BeautifulSoup(content, "html.parser")
-
-            links_html = "\n".join(str(tag) for tag in soup_for_extraction.find_all("link"))
+            head_tag = soup_for_extraction.find("head")
+            links_html = "\n".join(str(tag) for tag in head_tag.find_all("link")) if head_tag else "\n".join(str(tag) for tag in soup_for_extraction.find_all("link"))
             scripts_html = "\n".join(str(tag) for tag in soup_for_extraction.find_all("script"))
-
-            # Find the main content block
             content_div = soup_for_extraction.find(attrs={"data-content": True})
             if content_div:
                 content_section = content_div.decode_contents().strip()
             elif soup_for_extraction.body:
                 content_section = soup_for_extraction.body.decode_contents().strip()
             else:
-                # Fallback to entire content if no <body> or data-content attributes
-                content_section = soup_for_extraction.decode_contents().strip()
-
-            # Build Django layout
+                print("✅ Fallback: using cleaned raw content")
+                cleaned_content = re.sub(r"@@include\([^)]+\)", "", content)
+                temp_soup = BeautifulSoup(cleaned_content, "html.parser")
+                content_section = temp_soup.decode_contents().strip()
             django_template = f"""{{% extends 'vertical.html' %}}
 
 {{% load static i18n %}}
@@ -161,17 +138,13 @@ def convert_to_django_templates(folder):
 {scripts_html}
 {{% endblock scripts %}}
 """
-            final_output = django_template.strip()
+            final_output = re.sub(r"@@include\([^)]+\)", "", django_template.strip())
         else:
-            # For partials that are not layouts, just keep the processed content
-            final_output = content.strip()
-
+            final_output = re.sub(r"@@include\([^)]+\)", "", content.strip())
         with open(file, "w", encoding="utf-8") as f:
             f.write(final_output + "\n")
-
         print(f"✅ Processed: {file.relative_to(base_path)}")
         count += 1
-
     print(f"\n✨ {count} templates (layouts + partials) converted successfully.")
 
 
@@ -223,86 +196,84 @@ def create_django_project(project_name, source_folder, assets_folder):
             venv_python = venv_dir / "Scripts" / "python.exe"
             venv_pip = venv_dir / "Scripts" / "pip.exe"
         else:
+            # This path is the entry point to the virtual environment
             venv_python = venv_dir / "bin" / "python3"
             venv_pip = venv_dir / "bin" / "pip3"
+
+        # IMPORTANT DEBUGGING: Let's confirm the direct path and its existence
+        print(f"DEBUG: Calculated venv_python path (before absolute conversion): {venv_python}")
+        print(f"DEBUG: Does venv_python exist (before absolute conversion)? {venv_python.exists()}")
 
         if not venv_python.exists():
             print(f"❌ Error: Virtual environment Python executable not found at {venv_python}")
             return
 
-        # --- ONLY INSTALL LOCAL.TXT ---
-        local_requirements_file = project_root / "requirements" / "local.txt"
-        if local_requirements_file.exists():
-            print(f"🚀 Installing dependencies from '{local_requirements_file}' into virtual environment...")
-            subprocess.run([str(venv_pip), "install", "-r", str(local_requirements_file)], check=True)
+        # Install Django and other dependencies into the virtual environment
+        print("📦 Installing dependencies from local.txt...")
+        local_requirements_path = project_root / "requirements" / "local.txt"
+        try:
+            subprocess.run(
+                [str(venv_pip), "install", "-r", str(local_requirements_path)],
+                check=True,
+                capture_output=True,
+                text=True
+            )
             print("✅ Dependencies from local.txt installed.")
-        else:
-            print(
-                f"⚠️ Warning: '{local_requirements_file}' not found. Skipping dependency installation from local.txt.")
-        # --- END ONLY INSTALL LOCAL.TXT ---
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error setting up virtual environment or installing dependencies: {e.stderr}")
-        return
-    except Exception as e:
-        print(f"❌ An unexpected error occurred during virtual environment setup: {e}")
-        return
-    # --- End: Virtual Environment Setup ---
-    app_name ="pages"
-    manage_py_path = project_root / "manage.py"
-    app_creation_target_dir = project_root / project_name
-    # For cookiecutter-django, settings are often configured to use local.py during development
-    # If debug_toolbar is only in local.py and you're running manage.py locally, this is fine.
-    settings_file_name = "base.py"
-    settings_py_path = project_root / "config" / "settings" / settings_file_name
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Error installing dependencies: {e}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
+            return
 
-    if not manage_py_path.exists():
-        print(
-            f"❌ Error: manage.py not found at {manage_py_path}. This indicates an issue with cookiecutter project creation or its pathing.")
-        print(f"Please manually inspect the directory: {project_root}")
-        return
-    print(f"📂 Creating Django app '{app_name}'...")
-    try:
-        absolute_manage_py_path = manage_py_path.resolve()
-        command = [str(venv_python), str(absolute_manage_py_path), "startapp", app_name]
-        print(f"Executing command: {' '.join(command)}")
-        print(f"With cwd: {app_creation_target_dir}")
-        subprocess.run(
-            command,
-            cwd=app_creation_target_dir,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        print(f"✅ Django app '{app_name}' created successfully.")
-        if settings_py_path.exists():
-            print(f"✍️ Registering app '{app_name}' in {settings_py_path}...")
-            with open(settings_py_path, 'r+') as f:
-                content = f.read()
-                new_content = re.sub(
-                    r"(INSTALLED_APPS = \[.*?)(?:\])",
-                    r"\1\n    '{}',\n]".format(app_name),
-                    content,
-                    flags=re.DOTALL
-                )
-                f.seek(0)
-                f.write(new_content)
-                f.truncate()
-            print(f"✅ App '{app_name}' registered successfully.")
-        else:
-            print(
-                f"⚠️ Warning: settings.py not found at {settings_py_path}. Please add '{app_name}' to INSTALLED_APPS manually.")
+        app_name = "pages"
+        manage_py_path = project_root / "manage.py"  # This is Path('django/tonely/manage.py')
+        app_creation_target_dir = project_root / project_name  # This is Path('django/tonely/tonely')
+
+        print(f"📂 Creating Django app '{app_name}'...")
+        try:
+            # **** THE CRUCIAL CHANGE: Convert only the venv_python and manage_py_path
+            # **** to absolute strings without resolving symlinks all the way to the system python.
+            # **** Path.absolute() is often better than Path.resolve() for this scenario.
+
+            # Get the absolute path to the venv's python executable
+            # This typically does not follow symlinks *outside* the virtual environment's immediate setup.
+            # It just makes the current Path object absolute relative to CWD.
+            absolute_venv_python_cmd = str(venv_python.absolute())
+
+            # Get the absolute path to manage.py
+            absolute_manage_py_path_cmd = str(manage_py_path.absolute())
+
+            command = [absolute_venv_python_cmd, absolute_manage_py_path_cmd, "startapp", app_name]
+            print(f"Executing command: {' '.join(command)}")
+            print(f"With cwd: {app_creation_target_dir}")
+
+            subprocess.run(
+                command,
+                cwd=app_creation_target_dir,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"✅ Django app '{app_name}' created successfully.")
+
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Error creating/registering app '{app_name}': {e}")
+            print(f"Command run: {' '.join(e.cmd)}")
+            print(f"Return code: {e.returncode}")
+            print(f"Stdout: {e.stdout}")
+            print(f"Stderr: {e.stderr}")
+        except Exception as e:
+            print(f"❌ An unexpected error occurred while creating/registering app: {e}")
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error creating/registering app '{app_name}': {e.stderr}")
-        print(f"Command run: {' '.join(command)}")
-        print(f"Return code: {e.returncode}")
+        print(f"❌ Error creating virtual environment: {e}")
         print(f"Stdout: {e.stdout}")
         print(f"Stderr: {e.stderr}")
-        return
     except Exception as e:
-        print(f"❌ An unexpected error occurred while creating/registering app: {e}")
-        return
+        print(f"❌ An unexpected error occurred: {e}")
 
-        # --- Start: Add views.py and urls.py to the new 'pages' app ---
+    empty_folder_contents(project_root / project_name / 'templates' / 'pages')
+
+    # --- Start: Add views.py and urls.py to the new 'pages' app ---
     pages_app_dir = app_creation_target_dir / app_name  # This is the actual 'pages' app directory
 
     views_content = """from django.shortcuts import render
@@ -387,10 +358,6 @@ urlpatterns = [
     else:
         print(f"⚠️ Warning: Main URLs file '{main_urls_file_path}' not found. Skipping URL inclusion.")
     # --- End: Include pages app URLs ---
-
-
-
-
 
     # Copy the source file and change extensions
     pages_path = project_root / project_name / "templates" / "pages"
