@@ -258,10 +258,6 @@ def create_django_project(project_name, source_folder, assets_folder):
             venv_python = venv_dir / "bin" / "python3"
             venv_pip = venv_dir / "bin" / "pip3"
 
-        # IMPORTANT DEBUGGING: Let's confirm the direct path and its existence
-        print(f"DEBUG: Calculated venv_python path (before absolute conversion): {venv_python}")
-        print(f"DEBUG: Does venv_python exist (before absolute conversion)? {venv_python.exists()}")
-
         if not venv_python.exists():
             print(f"❌ Error: Virtual environment Python executable not found at {venv_python}")
             return
