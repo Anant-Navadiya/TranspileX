@@ -151,15 +151,18 @@ class CoreToMvcConverter:
         """Creates a controller file with basic action methods."""
         using_statements = "using Microsoft.AspNetCore.Mvc;"
 
+        action_methods = "\n\n".join([
+            f"""        public IActionResult {action}()\n        {{\n            return View();\n        }}"""
+            for action in actions
+        ])
+
         controller_class = f"""
     namespace {self.project_name}.Controllers
     {{
         public class {controller_name}Controller : Controller
         {{
-    {"".join([f"""        public IActionResult {action}()
-            {{
-                return View();
-            }}\n\n""" for action in actions])}    }}
+    {action_methods}
+        }}
     }}
     """.strip()
 
