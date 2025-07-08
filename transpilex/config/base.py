@@ -9,12 +9,14 @@ FILE_INCLUDE_PREFIX = '@@'
 FILE_INCLUDE_COMMAND = 'include'
 FILE_INCLUDE_SUFFIX = ''
 
+
 # PHP
 PHP_DESTINATION_FOLDER = 'php'
 PHP_SRC_FOLDER = 'src'
 PHP_ASSETS_FOLDER = 'assets'
 PHP_EXTENSION = '.php'
 PHP_GULP_ASSETS_PATH = './src/assets'
+
 
 # CakePHP
 CAKEPHP_PROJECT_CREATION_COMMAND = 'composer create-project --prefer-dist cakephp/app:~5.0'
@@ -24,6 +26,7 @@ CAKEPHP_ASSETS_FOLDER = 'webroot'
 CAKEPHP_ASSETS_PRESERVE = ["index.php", ".htaccess"]
 CAKEPHP_GULP_ASSETS_PATH = './webroot'
 
+
 # CodeIgniter
 CODEIGNITER_PROJECT_CREATION_COMMAND = 'composer create-project codeigniter4/appstarter'
 CODEIGNITER_DESTINATION_FOLDER = 'codeigniter'
@@ -31,6 +34,17 @@ CODEIGNITER_EXTENSION = '.php'
 CODEIGNITER_ASSETS_FOLDER = 'public'
 CODEIGNITER_ASSETS_PRESERVE = ["index.php", ".htaccess", "manifest.json", "robots.txt"]
 CODEIGNITER_GULP_ASSETS_PATH = './public'
+
+
+# Laravel
+LARAVEL_INSTALLER_COMMAND = 'composer global require laravel/installer'
+LARAVEL_PROJECT_CREATION_COMMAND = 'laravel new'
+LARAVEL_DESTINATION_FOLDER = 'laravel'
+LARAVEL_EXTENSION = '.blade.php'
+LARAVEL_ASSETS_FOLDER = 'public'
+LARAVEL_ASSETS_PRESERVE = ["index.php", ".htaccess"]
+LARAVEL_GULP_ASSETS_PATH = './public'
+
 
 # MVC
 MVC_PROJECT_CREATION_COMMAND = 'dotnet new mvc -n'

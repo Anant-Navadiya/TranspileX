@@ -5,9 +5,23 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from shutil import move, which
 
+from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, LARAVEL_DESTINATION_FOLDER, LARAVEL_ASSETS_FOLDER
 from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.restructure_files import restructure_files
+
+
+class LaravelConverter:
+    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=LARAVEL_DESTINATION_FOLDER,
+                 assets_path=ASSETS_PATH):
+        self.project_name = project_name
+        self.source_path = Path(source_path)
+        self.destination_path = Path(destination_folder)
+        self.assets_path = Path(assets_path)
+
+        self.project_root = self.destination_path / project_name
+        self.project_assets_path = self.project_root / LARAVEL_ASSETS_FOLDER
+        self.project_views_path = Path(self.project_root / "resources" / "views")
 
 
 def add_routes_web_file(project_root):
@@ -86,28 +100,6 @@ class RoutingController extends Controller
         print(f"✅ Created controller file: {controller_file_path.relative_to(project_root)}")
     except Exception as e:
         print(f"❌ Error writing to {controller_file_path}: {e}")
-
-
-def extract_json_from_include(include_str):
-    try:
-        match = re.search(r'\{.*\}', include_str)
-        if match:
-            json_text = match.group().replace("'", '"')
-            return json.loads(json_text)
-    except Exception:
-        pass
-    return {}
-
-
-def format_blade_include(page_title, subtitle):
-    parts = []
-    if page_title:
-        parts.append(f"'page_title' => '{page_title}'")
-    if subtitle:
-        parts.append(f"'sub_title' => '{subtitle}'")
-    if parts:
-        return f"@include('layouts.shared.page-title', [{', '.join(parts)}])"
-    return ""
 
 
 def extract_params_from_include(include_string):

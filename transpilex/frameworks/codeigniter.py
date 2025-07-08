@@ -14,6 +14,7 @@ from transpilex.helpers.messages import Messenger
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
+
 class CodeIgniterConverter:
 
     def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=CODEIGNITER_DESTINATION_FOLDER,
@@ -26,9 +27,8 @@ class CodeIgniterConverter:
         self.project_root = self.destination_path / project_name
         self.project_assets_path = self.project_root / CODEIGNITER_ASSETS_FOLDER
         self.project_views_path = Path(self.project_root / "app" / "Views")
-        self.project_element_path = Path(self.project_root / "templates" / "element")
-        self.project_pages_controller_path = Path(self.project_root / "src" / "Controller" / "PagesController.php")
-        self.project_routes_path = Path(self.project_root / "config" / "routes.php")
+        self.project_home_controller_path = Path(self.project_root / "app" / "Controllers" / "Home.php")
+        self.project_routes_path = Path(self.project_root / "app" / "Config" / "Routes.php")
 
         self.create_project()
 
@@ -47,6 +47,12 @@ class CodeIgniterConverter:
 
         change_extension_and_copy(CODEIGNITER_EXTENSION, self.source_path, self.project_views_path)
 
+        self._convert()
+
+        self._add_home_controller()
+
+        self._patch_routes()
+
         copy_assets(self.assets_path, self.project_assets_path, preserve=CODEIGNITER_ASSETS_PRESERVE)
 
         create_gulpfile_js(self.project_root, CODEIGNITER_GULP_ASSETS_PATH)
@@ -55,211 +61,140 @@ class CodeIgniterConverter:
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
+    def _convert(self):
 
-def convert_to_codeigniter(dist_folder):
-    """
-    Replace @@include() with CodeIgniter-style view syntax in .php files.
-    Correctly handles both JSON and 'array(...)' parameters, and optional '.html' in paths.
-    Ensures all .php files are processed for HTML link and asset path cleaning.
-    """
-    dist_path = Path(dist_folder)
-    count = 0
+        count = 0
 
-    for file in dist_path.rglob("*.php"):
-        if file.is_file():
-            with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
+        for file in self.project_views_path.rglob("*.php"):
+            if file.is_file():
+                with open(file, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-            original_content = content
+                original_content = content
 
-            # --- Helper functions for replacements ---
 
-            # Handles @@include with JSON parameters: {"key": "value"}
-            def include_with_json_params(match):
-                file_path = match.group(1).strip()
-                param_json_str = match.group(2).strip()
-                try:
-                    params = json.loads(param_json_str)
-                    php_array = "array(" + ", ".join(
-                        [f'"{k}" => {json.dumps(v)}' for k, v in params.items()]
-                    ) + ")"
+                # Handles @@include with JSON parameters: {"key": "value"}
+                def include_with_json_params(match):
+                    file_path = match.group(1).strip()
+                    param_json_str = match.group(2).strip()
+                    try:
+                        params = json.loads(param_json_str)
+                        php_array = "array(" + ", ".join(
+                            [f'"{k}" => {json.dumps(v)}' for k, v in params.items()]
+                        ) + ")"
+                        view_name = Path(file_path).stem  # Get base name without extension
+                        return f'<?php echo view("{view_name}", {php_array}) ?>'
+                    except json.JSONDecodeError as e:
+                        Messenger.warning(f"JSON decode error in @@include for file {file.name}: {e}\nContent: {match.group(0)}")
+                        return match.group(0)  # Return original match on error
+
+                # Handles @@include with PHP array parameters: array("key" => "value")
+                def include_with_array_params(match):
+                    file_path = match.group(1).strip()
+                    php_array_str = match.group(2).strip()  # Capture the full PHP array string
+
                     view_name = Path(file_path).stem  # Get base name without extension
-                    return f'<?php echo view("{view_name}", {php_array}) ?>'
-                except json.JSONDecodeError as e:
-                    print(f"⚠️ JSON decode error in @@include for file {file.name}: {e}\nContent: {match.group(0)}")
-                    return match.group(0)  # Return original match on error
 
-            # Handles @@include with PHP array parameters: array("key" => "value")
-            def include_with_array_params(match):
-                file_path = match.group(1).strip()
-                php_array_str = match.group(2).strip()  # Capture the full PHP array string
+                    # Directly insert the captured PHP array string into the view() call
+                    return f'<?php echo view("{view_name}", {php_array_str}) ?>'
 
-                view_name = Path(file_path).stem  # Get base name without extension
+                # Handles @@include without parameters
+                def include_no_params(match):
+                    file_path = match.group(1).strip()
+                    view_name = Path(file_path).stem  # Get base name without extension
+                    return f"<?= $this->include('{view_name}') ?>"
 
-                # Directly insert the captured PHP array string into the view() call
-                return f'<?php echo view("{view_name}", {php_array_str}) ?>'
+                # Replace @@include with JSON parameters (optional .html in path)
+                # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+                # Match params: (\{[\s\S]*?\}) - matches JSON object, including newlines
+                content = re.sub(
+                    r"""@@include\(['"]([^"']+)['"]\s*,\s*(\{[\s\S]*?\})\s*\)""",
+                    include_with_json_params,
+                    content,
+                    flags=re.DOTALL
+                )
 
-            # Handles @@include without parameters
-            def include_no_params(match):
-                file_path = match.group(1).strip()
-                view_name = Path(file_path).stem  # Get base name without extension
-                return f"<?= $this->include('{view_name}') ?>"
+                # Replace @@include with PHP array parameters (optional .html in path)
+                # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+                # Match params: (array\(.*?\)) - matches array(...)
+                content = re.sub(
+                    r"""@@include\(['"]([^"']+)['"]\s*,\s*(array\(.*?\))\s*\)""",
+                    include_with_array_params,
+                    content,
+                    flags=re.DOTALL
+                )
 
-            # --- Apply replacements in order ---
+                # Replace @@include without parameters (optional .html in path)
+                # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
+                content = re.sub(
+                    r"""@@include\(['"]([^"']+)['"]\s*\)""",
+                    include_no_params,
+                    content
+                )
 
-            # 1. Replace @@include with JSON parameters (optional .html in path)
-            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
-            # Match params: (\{[\s\S]*?\}) - matches JSON object, including newlines
-            content = re.sub(
-                r"""@@include\(['"]([^"']+)['"]\s*,\s*(\{[\s\S]*?\})\s*\)""",
-                include_with_json_params,
-                content,
-                flags=re.DOTALL
-            )
+                content = replace_html_links(content, '')
+                content = clean_relative_asset_paths(content)
 
-            # 2. Replace @@include with PHP array parameters (optional .html in path)
-            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
-            # Match params: (array\(.*?\)) - matches array(...)
-            content = re.sub(
-                r"""@@include\(['"]([^"']+)['"]\s*,\s*(array\(.*?\))\s*\)""",
-                include_with_array_params,
-                content,
-                flags=re.DOTALL
-            )
+                if content != original_content:
+                    with open(file, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    Messenger.updated(f"CodeIgniter syntax, links, and/or assets in: {file}")
+                    count += 1
 
-            # 3. Replace @@include without parameters (optional .html in path)
-            # Match path: ([^"']+) - matches any characters except quotes (making .html optional)
-            content = re.sub(
-                r"""@@include\(['"]([^"']+)['"]\s*\)""",
-                include_no_params,
-                content
-            )
+        Messenger.success(f"{count} files processed and updated for CodeIgniter compatibility.")
 
-            # ALWAYS replace .html links and clean asset paths for every file
-            # (The problematic 'continue' condition has been removed from here as discussed previously)
-            content = replace_html_links(content, '')
-            content = clean_relative_asset_paths(content)
+    def _add_home_controller(self):
+        try:
+            if self.project_home_controller_path.exists():
+                with open(self.project_home_controller_path, "w", encoding="utf-8") as f:
+                    f.write(r'''<?php
 
-            if content != original_content:
-                with open(file, "w", encoding="utf-8") as f:
-                    f.write(content)
-                print(f"🔁 Updated CodeIgniter syntax, links, and/or assets in: {file}")
-                count += 1
+        namespace App\Controllers;
 
-    print(f"\n✅ {count} files processed and updated for CodeIgniter compatibility.")
-
-
-def add_home_controller(controller_path):
-    # Inject custom controller logic into Home.php
-    try:
-        if controller_path.exists():
-            with open(controller_path, "w", encoding="utf-8") as f:
-                f.write(r'''<?php
-
-    namespace App\Controllers;
-
-    class Home extends BaseController
-    {
-        public function index()
+        class Home extends BaseController
         {
-            return view('index');
-        }
+            public function index()
+            {
+                return view('index');
+            }
 
-        public function root($path = '')
-        {
-            if ($path !== '') {
-                if (@file_exists(APPPATH . 'Views/' . $path . '.php')) {
-                    return view($path);
+            public function root($path = '')
+            {
+                if ($path !== '') {
+                    if (@file_exists(APPPATH . 'Views/' . $path . '.php')) {
+                        return view($path);
+                    } else {
+                        throw \\CodeIgniter\\Exceptions\\PageNotFoundException::forPageNotFound();
+                    }
                 } else {
-                    throw \\CodeIgniter\\Exceptions\\PageNotFoundException::forPageNotFound();
+                    echo 'Path Not Found.';
                 }
-            } else {
-                echo 'Path Not Found.';
             }
         }
-    }
-    ''')
-            print(f"✅ Custom HomeController.php written to: {controller_path}")
-        else:
-            print(f"⚠️ HomeController not found at {controller_path}")
-    except Exception as e:
-        print(f"❌ Failed to update HomeController.php: {e}")
+        ''')
+                Messenger.success(f"Custom HomeController.php written to: {self.project_home_controller_path}")
+            else:
+                Messenger.warning(f"HomeController not found at {self.project_home_controller_path}")
+        except Exception as e:
+            Messenger.error(f"Failed to update HomeController.php: {e}")
 
+    def _patch_routes(self):
 
-def patch_routes(project_path):
-    routes_file = Path(project_path) / "app" / "Config" / "Routes.php"
-    new_content = """<?php
+        new_content = """<?php
 
-    use CodeIgniter\\Router\\RouteCollection;
+        use CodeIgniter\\Router\\RouteCollection;
 
-    $routes = \\Config\\Services::routes();
+        $routes = \\Config\\Services::routes();
 
-    $routes->setDefaultNamespace('App\\Controllers');
-    $routes->setDefaultController('Home');
-    $routes->setDefaultMethod('index');
+        $routes->setDefaultNamespace('App\\Controllers');
+        $routes->setDefaultController('Home');
+        $routes->setDefaultMethod('index');
 
-    /**
-     * @var RouteCollection $routes
-     */
-    $routes->get('/', 'Home::index');
-    $routes->get('/(:any)', 'Home::root/$1');
-    """
-    routes_file.write_text(new_content, encoding="utf-8")
-    print(f"🔁 Updated Routes.php with custom routing.")
-
-
-def create_codeigniter_project(project_name, source_folder, assets_folder):
-    """
-    1. Create a new Codeigniter project using Composer.
-    2. Copy all files from the source_folder to the new project's templates/Pages folder.
-    3. Convert the includes to Codeigniter-style using convert_to_codeigniter().
-    4. Add HomeController.php to the Controllers folder.
-    5. Patch routes.
-    6. Copy custom assets to public, preserving required files.
-    """
-
-    project_root = Path("codeigniter") / project_name
-    project_root.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create the Codeigniter project using Composer
-    print(f"📦 Creating Codeigniter project '{project_root}'...")
-    try:
-        subprocess.run(
-            f'composer create-project codeigniter4/appstarter {project_root}',
-            shell=True,
-            check=True
-        )
-        print("✅ Codeigniter project created successfully.")
-
-    except subprocess.CalledProcessError:
-        print("❌ Error: Could not create Codeigniter project. Make sure Composer and PHP are set up correctly.")
-        return
-
-    # Copy source files into templates/Pages/ as .php files
-    pages_path = project_root / "app" / "Views"
-    pages_path.mkdir(parents=True, exist_ok=True)
-
-    change_extension_and_copy('php', source_folder, pages_path)
-
-    # Convert @@include to Codeigniter syntax in all .php files inside templates/Pages/
-    print(f"\n🔧 Converting includes in '{pages_path}'...")
-    convert_to_codeigniter(pages_path)
-
-    # Add Home Controller
-    controller_path = Path(project_root) / "app" / "Controllers" / "Home.php"
-    add_home_controller(controller_path)
-
-    # Patch routes
-    patch_routes(project_root)
-
-    # Copy assets to webroot while preserving required files
-    assets_path = project_root / "public"
-    copy_assets(assets_folder, assets_path, preserve=["index.php", ".htaccess", "manifest.json", "robots.txt"])
-
-    # Create gulpfile.js
-    create_gulpfile_js(project_root, './public')
-
-    # Update dependencies
-    update_package_json(source_folder, project_root, project_name)
-
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")
+        /**
+         * @var RouteCollection $routes
+         */
+        $routes->get('/', 'Home::index');
+        $routes->get('/(:any)', 'Home::root/$1');
+        """
+        self.project_routes_path.write_text(new_content, encoding="utf-8")
+        Messenger.updated(f"Routes.php with custom routing.")

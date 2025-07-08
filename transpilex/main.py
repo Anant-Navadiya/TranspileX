@@ -2,7 +2,7 @@ import argparse
 
 from transpilex.config.package import PACKAGE_VERSION
 from transpilex.frameworks.cakephp import CakePHPConverter
-from transpilex.frameworks.codeigniter import create_codeigniter_project
+from transpilex.frameworks.codeigniter import create_codeigniter_project, CodeIgniterConverter
 from transpilex.frameworks.core import create_core_project
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.frameworks.django import create_django_project
@@ -27,7 +27,7 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
 
     handlers = {
         'laravel': make_args_handler(create_laravel_project),
-        'codeigniter': make_args_handler(create_codeigniter_project),
+        'codeigniter': make_class_handler(CodeIgniterConverter),
         'symfony': make_args_handler(create_symfony_project),
         'node': make_args_handler(create_node_project),
         'django': make_args_handler(create_django_project),

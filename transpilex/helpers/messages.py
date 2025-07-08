@@ -2,32 +2,32 @@ class Messenger:
 
     @staticmethod
     def info(message: str):
-        print(f"\nℹ️ {message}")
+        print(f"ℹ️{message}")
 
     @staticmethod
     def success(message: str):
-        print(f"\n✅ {message}")
+        print(f"✅{message}")
 
     @staticmethod
     def warning(message: str):
-        print(f"\n⚠️ {message}")
+        print(f"⚠️{message}")
 
     @staticmethod
     def error(message: str):
-        print(f"\n❌ {message}")
+        print(f"❌{message}")
 
     @staticmethod
     def removed(message: str):
-        print(f"\n🗑️ {message}")
+        print(f"🗑️{message}")
 
     @staticmethod
     def replaced(file_path: str):
-        print(f"\n🔁 Replaced includes in: {file_path}")
+        print(f"🔁Replaced includes in: {file_path}")
 
     @staticmethod
     def updated(file_path: str):
-        print(f"\n🔁 {file_path}")
+        print(f"🔁Updated {file_path}")
 
     @staticmethod
     def completed(task: str, location: str):
-        print(f"\n🎉 {task} completed at: {location}")
+        print(f"🎉{task} completed at: {location}")
