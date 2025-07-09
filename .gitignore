@@ -8,13 +8,15 @@ transpilex.egg-info
 html
 assets
 php
+laravel
 cakephp
 codeigniter
-node
-laravel
 symfony
+node
 django
 flask
 core
 mvc
+blazor
+ror
 package.json

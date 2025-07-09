@@ -25,7 +25,7 @@ class CakePHPConverter:
         self.destination_path = Path(destination_folder)
         self.assets_path = Path(assets_path)
 
-        self.project_root = self.destination_path / project_name
+        self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / CAKEPHP_ASSETS_FOLDER
         self.project_pages_path = Path(self.project_root / "templates" / "Pages")
         self.project_element_path = Path(self.project_root / "templates" / "element")

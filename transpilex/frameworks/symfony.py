@@ -210,17 +210,17 @@ def create_symfony_project(project_name, source_folder, assets_folder):
 
     # Create the Symfony project using Composer
     print(f"📦 Creating Symfony project '{project_root}'...")
-    # try:
-    #     subprocess.run(
-    #         f'symfony new {project_root} --version="7.3.x-dev" --webapp',
-    #         shell=True,
-    #         check=True
-    #     )
-    #     print("✅ Symfony project created successfully.")
-    #
-    # except subprocess.CalledProcessError:
-    #     print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
-    #     return
+    try:
+        subprocess.run(
+            f'symfony new {project_root} --version="7.3.x-dev" --webapp',
+            shell=True,
+            check=True
+        )
+        print("✅ Symfony project created successfully.")
+
+    except subprocess.CalledProcessError:
+        print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
+        return
 
     # Copy the source file and change extensions
     pages_path = project_root / "templates"
@@ -230,7 +230,7 @@ def create_symfony_project(project_name, source_folder, assets_folder):
 
     convert_to_symfony_twig(pages_path)
 
-    # add_home_controller_file(project_root)
+    add_home_controller_file(project_root)
 
     # Copy assets to webroot while preserving required files
     assets_path = project_root / "public"

@@ -1,16 +1,18 @@
 import argparse
 
 from transpilex.config.package import PACKAGE_VERSION
+from transpilex.frameworks.blazor import BlazorConverter
 from transpilex.frameworks.cakephp import CakePHPConverter
-from transpilex.frameworks.codeigniter import create_codeigniter_project, CodeIgniterConverter
+from transpilex.frameworks.codeigniter import CodeIgniterConverter
 from transpilex.frameworks.core import create_core_project
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.frameworks.django import create_django_project
 from transpilex.frameworks.flask import create_flask_project
-from transpilex.frameworks.laravel import create_laravel_project
+from transpilex.frameworks.laravel import LaravelConverter
 from transpilex.frameworks.mvc import create_mvc_project
 from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import PHPConverter
+from transpilex.frameworks.ror import RoRConverter
 from transpilex.frameworks.symfony import create_symfony_project
 
 from transpilex.helpers.system_check import system_check
@@ -26,16 +28,18 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
         return lambda: cls(project_name)
 
     handlers = {
-        'laravel': make_args_handler(create_laravel_project),
+        'php': make_class_handler(PHPConverter),
+        'laravel': make_class_handler(LaravelConverter),
+        'cakephp': make_class_handler(CakePHPConverter),
         'codeigniter': make_class_handler(CodeIgniterConverter),
         'symfony': make_args_handler(create_symfony_project),
         'node': make_args_handler(create_node_project),
         'django': make_args_handler(create_django_project),
         'flask': make_args_handler(create_flask_project),
+        'ror': make_class_handler(RoRConverter),
         'core': make_args_handler(create_core_project),
         'mvc': make_args_handler(create_mvc_project),
-        'php': make_class_handler(PHPConverter),
-        'cakephp': make_class_handler(CakePHPConverter),
+        'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
     }
 
