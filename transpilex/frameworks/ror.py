@@ -1,7 +1,10 @@
-import json
+import os
 import re
+import json
+import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
+import shutil
 
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, ROR_DESTINATION_FOLDER, ROR_ASSETS_FOLDER, ROR_EXTENSION
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
@@ -21,22 +24,75 @@ class RoRConverter:
         self.project_root = self.destination_path / project_name
         self.project_assets_path = self.project_root / ROR_ASSETS_FOLDER
         self.project_views_path = self.project_root / "app" / "views"
+        self.project_controllers_path = self.project_root / "app" / "controllers"
 
-        # Ensure the views path exists for output
-        self.project_views_path.mkdir(parents=True, exist_ok=True)
-
-        self.create_project()  # Call this explicitly if needed for full workflow
+        self.create_project()
 
     def create_project(self):
-        """
-        Initializes the project structure and restructures files.
-        """
-        Messenger.info(f"Creating project structure for '{self.project_name}'...")
+
+        Messenger.info(f"Creating RoR project at: '{self.project_root}'...")
+
+        self.project_root.mkdir(parents=True, exist_ok=True)
+
+        try:
+            subprocess.run(f'rails new {self.project_root}', shell=True, check=True)
+            Messenger.success(f"RoR project created.")
+        except subprocess.CalledProcessError:
+            Messenger.error(f"RoR project creation failed.")
+            return
+
         empty_folder_contents(self.project_views_path)
+
         restructure_files(self.source_path, self.project_views_path, new_extension=ROR_EXTENSION,
                           skip_dirs=['partials'], keep_underscore=True)
-        Messenger.info("Project structure created.")
+
         self._convert()
+
+        self._create_ror_controllers(self.project_views_path, self.project_controllers_path, ["layouts", "partials"])
+
+        # copy_assets(self.assets_path, self.project_assets_path)
+
+        # update_package_json(self.source_path, self.project_root, self.project_name)
+
+        Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+
+    def _extract_page_title_include(self, content):
+        """
+        Extract the full @@include(...) string and the JSON params for page-title.html
+        using manual brace counting for multiline and nested braces.
+        Returns (full_include_string, params_str) or (None, None) if not found.
+        """
+        pattern_start = r'@@include\(\s*["\']\.?\/?partials\/page-title\.html["\']\s*,'
+        match_start = re.search(pattern_start, content)
+        if not match_start:
+            return None, None
+
+        start_pos = match_start.end()  # position right after the comma
+        # Skip whitespace to find first '{'
+        while start_pos < len(content) and content[start_pos] not in '{':
+            start_pos += 1
+        if start_pos >= len(content) or content[start_pos] != '{':
+            return None, None
+
+        brace_count = 0
+        end_pos = start_pos
+        while end_pos < len(content):
+            if content[end_pos] == '{':
+                brace_count += 1
+            elif content[end_pos] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    break
+            end_pos += 1
+
+        if brace_count != 0:
+            return None, None
+
+        params_str = content[start_pos:end_pos+1]
+        # full include string ends at position after the closing brace + 1 for ')'
+        full_include_string = content[match_start.start():end_pos+2]  # includes final '})'
+
+        return full_include_string, params_str
 
     def _convert(self):
         """
@@ -44,36 +100,26 @@ class RoRConverter:
         """
         count = 0
 
-        # Iterate through all .html.erb files in the project views path
         for file in self.project_views_path.rglob(f"*.html.erb"):
-            Messenger.info(f"Processing file: {file.relative_to(self.project_views_path)}")
             with open(file, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            original_content = content  # Keep a copy of the original content
+            original_content = content
             soup_original = BeautifulSoup(original_content, 'html.parser')
 
-            # --- Step 1: Extract and remove page-title include ---
+            # Extract and remove page-title include robustly
+            full_include_string, params_str = self._extract_page_title_include(original_content)
+
             page_title_render_string = ""
             page_title_include_params = {}
             title_from_page_title_include = None
 
-            # Pattern to find @@include for page-title.html and capture its parameters
-            page_title_pattern = r'(@@include\(\s*["\']\.?\/partials\/page-title\.html["\']\s*,\s*(array\(.*?\)|\{.*?\})\s*\))'
-            page_title_match = re.search(page_title_pattern, original_content, flags=re.DOTALL)
-
-            if page_title_match:
-                full_include_string = page_title_match.group(1)  # The entire @@include(...) string
-                params_str = page_title_match.group(2)  # Just the parameters part (e.g., {"title": "Calendar"})
-
+            if full_include_string and params_str:
                 page_title_include_params = self._extract_params_from_include(params_str)
 
-                # Construct the Rails render string using all extracted parameters
                 if page_title_include_params:
                     def ruby_value(v):
-                        """Converts Python value to Ruby string representation."""
                         if isinstance(v, str):
-                            # Escape backslashes and double quotes for Ruby string literal
                             escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
                             return f'"{escaped}"'
                         elif isinstance(v, bool):
@@ -83,71 +129,43 @@ class RoRConverter:
                         else:
                             return str(v)
 
-                    # Join parameters into a Ruby hash string (e.g., title: "Calendar, sub_title: "Apps")
                     params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in page_title_include_params.items())
                     page_title_render_string = f"<%= render 'layouts/partials/page_title', {params_str_ruby} %>\n\n"
 
-                    # Extract the 'title' specifically for the @title ERB variable
                     if "title" in page_title_include_params:
                         title_from_page_title_include = page_title_include_params["title"]
 
-                # Remove the original @@include statement from the content
                 content = content.replace(full_include_string, "")
-                Messenger.info(f"Removed page-title include: {full_include_string[:50]}...")
 
-            # --- Step 2: Determine the main page title for @title ERB variable ---
-            title = title_from_page_title_include
-            if not title:  # If title wasn't found in page-title include, try <title> tag or data-title attribute
-                title = self._extract_title_from_soup_or_data(soup_original) or "Page Title"
-            Messenger.info(f"Determined page title: '{title}'")
+            # Determine the main page title for @title ERB variable
+            title = title_from_page_title_include or self._extract_title_from_soup_or_data(soup_original) or "Page Title"
 
-            # --- Step 3: Prepare Rails ERB header with page title instance variable ---
             erb_header = f"<% @title = \"{title}\" %>\n\n"
 
-            # --- Step 4: Convert all other @@include statements (excluding page-title.html) ---
-            # This operates on the 'content' which now has the page-title include removed
-            content = self.convert_general_includes(content)
-            Messenger.info("Converted general includes.")
+            # Convert all other @@include except page-title.html
+            content = self._convert_general_includes(content)
 
-            # --- Step 5: Extract main content (after general includes conversion) ---
-            # Re-parse the content into a new BeautifulSoup object to reflect changes
             soup_current = BeautifulSoup(content, 'html.parser')
             main_content = self._extract_main_content(soup_current, content)
-            Messenger.info("Extracted main content.")
 
-            # --- Step 5.5: Convert image paths ---
+            # Convert image paths with placeholders to prevent ERB escaping
             main_content = self._convert_image_paths(main_content)
-            Messenger.info("Converted image paths in main content.")
 
-            # --- Step 6: Extract script tags from original content ---
-            # We extract from the original soup to ensure all script tags are captured
             vite_scripts = self._extract_vite_scripts(soup_original)
-            Messenger.info(f"Extracted {len(vite_scripts)} script tags.")
 
-            # --- Step 7: Remove script tags from main content ---
             main_content = self._remove_script_tags(main_content)
-            Messenger.info("Removed script tags from main content.")
 
-            # --- Step 8: Compose final ERB output ---
             erb_output = (
-                    erb_header +  # <% @title = "..." %>
-                    page_title_render_string +  # <%= render 'layouts/partials/page_title', ... %> (if present)
-                    main_content.strip() +  # The cleaned HTML content
-                    "\n\n<% content_for :javascript do %>\n"  # Start of JS block
+                erb_header +
+                page_title_render_string +
+                main_content.strip() +
+                "\n\n<% content_for :javascript do %>\n"
             )
 
-            # Add vite_javascript_tag calls for each extracted script
             for script in vite_scripts:
                 erb_output += f"  <%= vite_javascript_tag '{script}' %>\n"
-            erb_output += "<% end %>\n"  # End of JS block
+            erb_output += "<% end %>\n"
 
-            # --- Step 9: Removed: Clean relative asset paths (handled by specific converters) ---
-            # The path normalization is now handled within _convert_image_paths and _extract_vite_scripts.
-            # Applying clean_relative_asset_paths to the final ERB output could corrupt helper strings.
-            # erb_output = clean_relative_asset_paths(erb_output)
-            # Messenger.info("Cleaned asset paths.") # This message is now redundant
-
-            # Write the converted content back to the file
             with open(file, "w", encoding="utf-8") as f:
                 f.write(erb_output)
 
@@ -156,81 +174,70 @@ class RoRConverter:
 
         Messenger.success(f"\n{count} Rails view files converted successfully.")
 
-    def convert_general_includes(self, content):
-        """
-        Converts all @@include(...) statements in the content, excluding page-title.html,
-        into simple Rails render calls.
-        """
-        # Pattern to match all @@include except page-title.html
-        # It also allows for optional parameters, though they are ignored for general includes
+    def _convert_general_includes(self, content):
         pattern_general = r'@@include\(\s*["\']\.?\/partials\/(?!page-title\.html)([^"\']+)["\'](?:\s*,\s*(array\(.*?\)|\{.*?\}))?\s*\)'
 
         def general_replacer(m):
-            partial_name = m.group(1).replace('.html', '')  # Get partial name without .html extension
-            # For general includes, we convert to a simple Rails render call without parameters
+            partial_name = m.group(1).replace('.html', '')
             return f"<%= render 'layouts/partials/{partial_name}' %>"
 
-        # Substitute all matches with the Rails render syntax
         content = re.sub(pattern_general, general_replacer, content, flags=re.DOTALL)
         return content
 
     def _extract_params_from_include(self, params_str):
-        """
-        Extracts parameters from a string containing either JSON or PHP array syntax.
-        Returns a dictionary of parameters.
-        """
-        # Try JSON parsing first
+        # First, clean string to valid JSON format
+        # Remove newlines inside quoted strings by replacing them with spaces
+
+        # Regex to find multiline strings in quotes and replace newlines with space
+        def replace_newlines_in_quotes(match):
+            s = match.group(0)
+            # Replace newlines and tabs with space, then collapse multiple spaces into one
+            s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            s = re.sub(r'\s+', ' ', s)
+            return s
+
+        # Apply to all double-quoted strings
+        params_str = re.sub(r'"([^"]*?)"', replace_newlines_in_quotes, params_str)
+
+        # Now do your existing JSON cleanup and parse
         try:
-            # Replace single quotes with double quotes for JSON parsing compatibility
             json_str_cleaned = params_str.replace("'", '"')
-            # Use a regex to quote unquoted keys if they exist (e.g., {key: "value"})
-            # This regex matches a starting brace or comma, followed by optional whitespace,
-            # then an unquoted word (key), then optional whitespace and a colon.
-            # It replaces it with the same, but with the key wrapped in double quotes.
             json_str_cleaned = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str_cleaned)
             return json.loads(json_str_cleaned)
         except json.JSONDecodeError:
             Messenger.warning(f"Failed to parse as JSON: {params_str[:50]}...")
-            pass  # Fallback to PHP array parsing if JSON fails
+            pass
 
-        # Try PHP array parsing if JSON parsing failed
         params_dict = {}
-        # This regex is designed to parse key-value pairs from PHP array syntax.
-        # It handles keys (quoted or unquoted), and values (strings, numbers, booleans, null).
         param_pattern = re.compile(r"""
-            (?:['"]?(?P<key>[a-zA-Z_][a-zA-Z0-9_]*)['"]?\s*=>\s*)?   # Key (optional, handles 'key' => or key =>)
+            (?:['"]?(?P<key>[a-zA-Z_][a-zA-Z0-9_]*)['"]?\s*=>\s*)?
             (?:
-                ['"](?P<sval>(?:\\.|[^'"])*)['"]  # String value (handles escaped quotes like \" or \')
+                ['"](?P<sval>(?:\\.|[^'"])*)['"]
                 |
-                (?P<nval>-?\d+(?:\.\d+)?)         # Numeric value (int or float)
+                (?P<nval>-?\d+(?:\.\d+)?)
                 |
-                (?P<bool>true|false)               # Boolean value
+                (?P<bool>true|false)
                 |
-                (?P<null>null)                     # Null value
+                (?P<null>null)
             )
-            \s*(?:,\s*|$) # Separator (comma and optional whitespace) or end of string
+            \s*(?:,\s*|$)
         """, re.VERBOSE | re.DOTALL)
 
         for match in param_pattern.finditer(params_str):
             key = match.group('key')
-            # If a key is not explicitly found (e.g., for simple arrays without explicit keys), skip.
-            # Our current use case expects key-value pairs.
             if not key:
                 continue
 
             if match.group('sval') is not None:
-                # Unescape quotes within string values
                 value = match.group('sval').replace('\\"', '"').replace("\\'", "'")
             elif match.group('nval') is not None:
-                # Convert numeric string to int or float
                 value = float(match.group('nval')) if '.' in match.group('nval') else int(match.group('nval'))
             elif match.group('bool') is not None:
-                # Convert boolean string to Python boolean
                 value = True if match.group('bool') == 'true' else False
             elif match.group('null') is not None:
                 value = None
             else:
-                value = None  # Should ideally not be reached if regex is comprehensive
+                value = None
 
             params_dict[key] = value
 
@@ -239,10 +246,6 @@ class RoRConverter:
         return params_dict
 
     def _extract_title_from_soup_or_data(self, soup):
-        """
-        Extracts the page title from a <title> tag or a data-title attribute.
-        This is used as a fallback if the title is not found in a page-title include.
-        """
         if soup.title and soup.title.string:
             return soup.title.string.strip()
 
@@ -253,80 +256,134 @@ class RoRConverter:
         return None
 
     def _extract_main_content(self, soup, original_content_fallback):
-        """
-        Extracts the main content of the HTML.
-        Prioritizes a div with data-content attribute, then the body contents,
-        otherwise returns the whole original content as a fallback.
-        """
         content_div = soup.find(attrs={"data-content": True})
         if content_div:
-            # Return the string representation of all children within the data-content div
             return ''.join(str(c) for c in content_div.contents)
 
         if soup.body:
-            # Return the string representation of all children within the body tag
             return ''.join(str(c) for c in soup.body.contents)
 
         return original_content_fallback
 
     def _remove_script_tags(self, content_html):
-        """
-        Removes all <script> tags from the given HTML content.
-        """
         soup = BeautifulSoup(content_html, 'html.parser')
         for script in soup.find_all('script'):
-            script.decompose()  # Remove the script tag from the soup
-        return str(soup)  # Return the modified soup as a string
+            script.decompose()
+        return str(soup)
 
     def _convert_image_paths(self, content_html):
-        """
-        Converts image src attributes to Rails vite_asset_path helper calls.
-        Assumes paths like 'assets/images/...' or 'images/...'.
-        Uses placeholders to prevent BeautifulSoup from escaping ERB tags.
-        """
-        # Define placeholders for characters that BeautifulSoup might escape
-        PLACEHOLDER_LT = "__BS4_LT__"
-        PLACEHOLDER_GT = "__BS4_GT__"
-        PLACEHOLDER_QUOTE = "__BS4_QUOTE__"  # For single quote within the ERB string
-
         soup = BeautifulSoup(content_html, 'html.parser')
-        for img_tag in soup.find_all('img'):
+        placeholders = {}
+
+        for i, img_tag in enumerate(soup.find_all('img')):
             src = img_tag.get('src')
-            if src:
-                normalized_image_path = None
-                if src.startswith('assets/images/'):
-                    normalized_image_path = src.replace('assets/', '')
-                elif src.startswith('images/'):
-                    normalized_image_path = src
+            if not src:
+                continue
 
-                if normalized_image_path:
-                    # Construct the ERB tag with placeholders
-                    # Note the space after 'vite_asset_path' and single quotes around the path
-                    erb_src_with_placeholders = (
-                        f"{PLACEHOLDER_LT}%= vite_asset_path {PLACEHOLDER_QUOTE}{normalized_image_path}{PLACEHOLDER_QUOTE} %{PLACEHOLDER_GT}"
-                    )
-                    img_tag['src'] = erb_src_with_placeholders
-                    Messenger.info(f"Converted image src: {src} -> {erb_src_with_placeholders}")
+            normalized_image_path = None
+            if src.startswith('assets/images/'):
+                normalized_image_path = src.replace('assets/', '')
+            elif src.startswith('images/'):
+                normalized_image_path = src
 
-        modified_html_string = str(soup)
+            if normalized_image_path:
+                # Escape single quotes inside path just in case (usually not needed)
+                safe_path = normalized_image_path.replace("'", "\\'")
 
-        # Replace placeholders back with actual characters
-        modified_html_string = modified_html_string.replace(PLACEHOLDER_LT, '<')
-        modified_html_string = modified_html_string.replace(PLACEHOLDER_GT, '>')
-        modified_html_string = modified_html_string.replace(PLACEHOLDER_QUOTE, "'")
+                erb_tag = f'<%= vite_asset_path \'{safe_path}\' %>'
+                placeholder = f"@@ERB_PLACEHOLDER_{i}@@"
+                placeholders[placeholder] = erb_tag
 
-        return modified_html_string
+                # Set src attribute to the placeholder (which is safe text)
+                img_tag['src'] = placeholder
+
+        # Serialize to string: placeholders prevent escaping ERB tags
+        html_with_placeholders = str(soup)
+
+        # Replace placeholders with ERB tags (quoted properly)
+        for placeholder, erb_tag in placeholders.items():
+            # Replace the placeholder with the ERB tag surrounded by quotes (HTML attribute safe)
+            html_with_placeholders = html_with_placeholders.replace(
+                placeholder,
+                erb_tag
+            )
+
+        Messenger.info(f"Image ERB replacement done, ERB tags present? {'<%=' in html_with_placeholders}")
+
+        return html_with_placeholders
 
     def _extract_vite_scripts(self, soup):
-        """
-        Extracts source paths from <script> tags for conversion to vite_javascript_tag.
-        """
         vite_scripts = []
         for script in soup.find_all('script'):
             src = script.get('src')
             if not src:
                 continue
-            # Normalize path: remove leading '/' and 'assets/' prefix if present
             normalized_src = src.lstrip('/').replace('assets/', '')
             vite_scripts.append(normalized_src)
         return vite_scripts
+
+    import os
+    import shutil
+
+    def _create_ror_controller_file(self,path, controller_name, actions):
+        """
+        Creates a Rails controller Ruby file with empty action methods.
+        """
+        class_name = f"{controller_name.capitalize()}Controller"
+
+        methods = "\n\n".join([f"  def {action}\n  end" for action in actions])
+
+        controller_code = f"""class {class_name} < ApplicationController
+    {methods}
+    end
+    """
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(controller_code)
+
+    def _create_ror_controllers(self,views_folder, destination_folder, ignore_list=None):
+        """
+        Generates Rails controller files based on folders and .html.erb files in the views folder.
+        Deletes existing controllers folder if it exists.
+
+        :param views_folder: Path to the Rails views folder (e.g., app/views)
+        :param destination_folder: Where to create controllers folder (e.g., app/controllers)
+        :param ignore_list: List of folder or file names to ignore
+        """
+        ignore_list = ignore_list or []
+
+        controllers_path = os.path.join(destination_folder)
+
+        # Remove existing controllers folder (optional, be careful!)
+        if os.path.isdir(controllers_path):
+            print(f"🧹 Removing existing controllers folder: {controllers_path}")
+            shutil.rmtree(controllers_path)
+
+        os.makedirs(controllers_path, exist_ok=True)
+
+        # List all folders in views (each folder usually represents a controller)
+        for folder_name in os.listdir(views_folder):
+            if folder_name in ignore_list:
+                continue
+
+            folder_path = os.path.join(views_folder, folder_name)
+            if not os.path.isdir(folder_path):
+                continue
+
+            actions = []
+            for file in os.listdir(folder_path):
+                if file in ignore_list:
+                    continue
+                # Only consider .html.erb files that are not partials (no leading _)
+                if file.endswith(".html.erb") and not file.startswith("_"):
+                    action_name = file.replace(".html.erb", "")
+                    actions.append(action_name)
+
+            if actions:
+                controller_file_name = f"{folder_name}_controller.rb"
+                controller_file_path = os.path.join(controllers_path, controller_file_name)
+                self._create_ror_controller_file(controller_file_path, folder_name, actions)
+                print(f"✅ Created: {controller_file_path}")
+
+        print("✨ Rails controller generation completed.")
+

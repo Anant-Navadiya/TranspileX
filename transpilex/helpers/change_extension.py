@@ -39,3 +39,29 @@ def change_extension_and_copy(new_extension, src_folder, dist_folder):
             count += 1
 
     Messenger.success(f"{count} files processed and saved in '{dist_folder}' with '{new_extension}' extension.")
+
+
+def change_extension(new_extension, src_path: Path, dist_path: Path):
+    if not src_path.exists() or not src_path.is_dir():
+        Messenger.error(f"Source path '{src_path}' does not exist or is not a directory.")
+        return
+
+    if not new_extension.startswith('.'):
+        new_extension = '.' + new_extension
+
+    count = 0
+    for file in src_path.rglob("*"):
+        if file.is_file() and file.suffix:
+            relative_path = file.relative_to(src_path)
+
+            # Replace underscores with dashes in the filename (not path)
+            new_name = relative_path.stem.replace("_", "-") + new_extension
+            destination = dist_path / relative_path.parent / new_name
+
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(file, destination)
+
+            print(f"✅ {file} → {destination}")
+            count += 1
+
+    Messenger.success(f"{count} files processed and saved in '{dist_path}' with '{new_extension}' extension.")

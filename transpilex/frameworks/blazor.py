@@ -3,10 +3,12 @@ import re
 import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
+import shutil
 
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, BLAZOR_ASSETS_FOLDER, BLAZOR_DESTINATION_FOLDER, \
     BLAZOR_PROJECT_CREATION_COMMAND, BLAZOR_EXTENSION, BLAZOR_GULP_ASSETS_PATH
 from transpilex.helpers import change_extension_and_copy, copy_assets
+from transpilex.helpers.change_extension import change_extension
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.create_gulpfile import create_gulpfile_js
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
@@ -26,6 +28,9 @@ class BlazorConverter:
         self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / BLAZOR_ASSETS_FOLDER
         self.project_pages_path = Path(self.project_root / "Components" / "Pages")
+
+        self.project_layout_path = Path(self.project_root / "Components" / "Layout")
+        self.project_partials_path = Path(self.project_layout_path / "Partials")
 
         self.create_project()
 
@@ -66,13 +71,17 @@ class BlazorConverter:
 
         self._convert()
 
+        empty_folder_contents(self.project_layout_path)
+
+        self._move_partials()
+
         copy_assets(self.assets_path, self.project_assets_path)
 
         create_gulpfile_js(self.project_root, BLAZOR_GULP_ASSETS_PATH)
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
-    def _convert(self, skip_dirs=['partials'], casing="pascal"):
+    def _convert(self, skip_dirs=["partials"], casing="pascal"):
 
         copied_count = 0
 
@@ -110,14 +119,18 @@ class BlazorConverter:
 
             if is_partial:
                 main_content = soup.decode_contents().strip()
+                is_body_content = False
             else:
                 content_block = soup.find(attrs={"data-content": True})
                 if content_block:
                     main_content = content_block.decode_contents().strip()
+                    is_body_content = False
                 elif soup.body:
                     main_content = soup.body.decode_contents().strip()
+                    is_body_content = True
                 else:
                     main_content = soup.decode_contents().strip()
+                    is_body_content = False
 
             base_name = file.stem
 
@@ -146,6 +159,15 @@ class BlazorConverter:
     @inject IJSRuntime JsRuntime;
 
     """
+            if is_body_content:
+                # Assuming project name is self.project_name, adjust casing if needed
+                top_lines += f"""@using {self.project_name}.Components.Layout
+            @layout BaseLayout
+
+            """
+
+            else:
+                top_lines += "\n"
 
             if js_import_path:
                 # Fix the path if needed - remove leading slash to make it relative for import
@@ -185,6 +207,7 @@ class BlazorConverter:
             razor_content = f"{top_lines}{main_content}\n{end_lines}"
 
             razor_content = clean_relative_asset_paths(razor_content)
+            razor_content = self._convert_partial_include_to_blazor(razor_content)
             razor_content = replace_html_links(razor_content, '')
 
             with open(target_file, "w", encoding="utf-8") as f:
@@ -205,3 +228,46 @@ class BlazorConverter:
             lines.append(f'ViewBag.{key} = "{val_str}";')
 
         return "@{\n    " + "\n    ".join(lines) + "\n}"
+
+    def _convert_partial_include_to_blazor(self, content: str) -> str:
+        # Regex to capture @@include call with JSON params
+        pattern = re.compile(
+            r'@@include\(\s*"(?P<path>[^"]+)"\s*,\s*(?P<json>{.*?})\s*\)',
+            re.DOTALL
+        )
+
+        def replacer(match):
+            path = match.group("path")
+            json_str = match.group("json")
+
+            # Extract component name from partial filename, e.g. page-title.html => PageTitle
+            partial_file = Path(path).stem
+            component_name = ''.join(word.capitalize() for word in partial_file.split('-'))
+
+            # Try to parse JSON params
+            try:
+                params = json.loads(json_str)
+            except json.JSONDecodeError:
+                # If JSON invalid, just return original string (or handle error as needed)
+                return match.group(0)
+
+            # Convert keys and values to Blazor component attributes
+            attr_list = []
+            for key, val in params.items():
+                # Escape quotes inside val if string
+                if isinstance(val, str):
+                    val_escaped = val.replace('"', '&quot;')
+                    attr_list.append(f'{key}="{val_escaped}"')
+                else:
+                    attr_list.append(f'{key}="{val}"')
+
+            attrs = ' '.join(attr_list)
+
+            # Compose Blazor component tag
+            return f"<{component_name} {attrs} />"
+
+        return pattern.sub(replacer, content)
+
+    def _move_partials(self):
+        partials_dir = Path(self.source_path / "partials")
+        change_extension(BLAZOR_EXTENSION, partials_dir, self.project_partials_path)
