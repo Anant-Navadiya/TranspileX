@@ -25,6 +25,7 @@ class RoRConverter:
         self.project_assets_path = self.project_root / ROR_ASSETS_FOLDER
         self.project_views_path = self.project_root / "app" / "views"
         self.project_controllers_path = self.project_root / "app" / "controllers"
+        self.project_routes_path = self.project_root / "config" / "routes.rb"
 
         self.create_project()
 
@@ -48,13 +49,163 @@ class RoRConverter:
 
         self._convert()
 
-        self._create_ror_controllers(self.project_views_path, self.project_controllers_path, ["layouts", "partials"])
-
-        # copy_assets(self.assets_path, self.project_assets_path)
+        self._create_controllers(ignore_list=["layouts", "partials"])
 
         # update_package_json(self.source_path, self.project_root, self.project_name)
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+
+    def _convert(self):
+        """
+        Converts HTML files with custom @@include statements into Ruby on Rails ERB views.
+        """
+        count = 0
+
+        for file in self.project_views_path.rglob(f"*.html.erb"):
+            with open(file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            original_content = content
+            soup_original = BeautifulSoup(original_content, 'html.parser')
+
+            # --- Extract and remove page-title include ---
+            page_title_render_string = ""
+            page_title_include_params = {}
+            title_from_page_title_include = None
+
+            # Pattern to find @@include for page-title.html and capture its parameters
+            page_title_pattern = r'(@@include\(\s*["\']\.?\/?partials\/page-title\.html["\']\s*,\s*(\{[\s\S]*?\})\s*\))'
+            page_title_match = re.search(page_title_pattern, original_content, flags=re.DOTALL)
+
+            if page_title_match:
+                full_include_string = page_title_match.group(1)  # The entire @@include(...) string
+                params_str = page_title_match.group(2)  # Just the parameters part (e.g., {"title": "Calendar"})
+
+                page_title_include_params = self._extract_params_from_include(params_str)
+
+                if page_title_include_params:
+                    def ruby_value(v):
+                        if isinstance(v, str):
+                            escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
+                            return f'"{escaped}"'
+                        elif isinstance(v, bool):
+                            return 'true' if v else 'false'
+                        elif v is None:
+                            return 'nil'
+                        else:
+                            return str(v)
+
+                    params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in page_title_include_params.items())
+                    page_title_render_string = f"<%= render 'layouts/partials/page_title', {params_str_ruby} %>\n\n"
+
+                    if "title" in page_title_include_params:
+                        title_from_page_title_include = page_title_include_params["title"]
+
+                content = content.replace(full_include_string, "")
+
+            # --- Handle generic partials with params (except page-title) ---
+            pattern_all_partials_with_params = r'@@include\(\s*["\']\.?\/?partials\/(?!page-title\.html)([^"\']+\.html)["\']\s*,\s*(\{(?:[^{}]|\{[^{}]*\})*\})\s*\)'
+            matches = re.findall(pattern_all_partials_with_params, content, flags=re.DOTALL)
+
+            generic_partials_render_strings = []
+
+            for partial_name_html, params_str in matches:
+                partial_name = partial_name_html.replace('.html', '')
+                params_dict = self._extract_params_from_include(params_str)
+
+                if params_dict:
+                    def ruby_value(v):
+                        if isinstance(v, str):
+                            escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
+                            return f'"{escaped}"'
+                        elif isinstance(v, bool):
+                            return 'true' if v else 'false'
+                        elif v is None:
+                            return 'nil'
+                        else:
+                            return str(v)
+
+                    params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in params_dict.items())
+                    render_str = f"<%= render 'layouts/partials/{partial_name}', {params_str_ruby} %>\n\n"
+                else:
+                    render_str = f"<%= render 'layouts/partials/{partial_name}' %>\n\n"
+
+                generic_partials_render_strings.append(render_str)
+
+                # Remove the matched include statement from content
+                # Use re.escape on params_str to safely remove it
+                pattern_remove = re.escape(f'@@include("partials/{partial_name_html}", {params_str})')
+                content = re.sub(pattern_remove, '', content, flags=re.DOTALL)
+
+            # Append all generic partial renders after page-title render
+            page_title_render_string += "".join(generic_partials_render_strings)
+
+            # --- Determine the main page title for @title ERB variable ---
+            title = title_from_page_title_include or self._extract_title_from_soup_or_data(
+                soup_original) or "Page Title"
+
+            erb_header = f"<% @title = \"{title}\" %>\n\n"
+
+            # --- Convert all other @@include statements (excluding page-title.html) ---
+            content = self._convert_general_includes(content)
+
+            # --- Extract main content ---
+            soup_current = BeautifulSoup(content, 'html.parser')
+            main_content = self._extract_main_content(soup_current, content)
+
+            # --- Convert image paths ---
+            main_content = self._convert_image_paths(main_content)
+
+            # --- Extract script tags ---
+            vite_scripts = self._extract_vite_scripts(soup_original)
+
+            # --- Remove script tags ---
+            main_content = self._remove_script_tags(main_content)
+
+            # --- Compose final ERB output ---
+            erb_output = (
+                    erb_header +
+                    page_title_render_string +
+                    main_content.strip() +
+                    "\n\n<% content_for :javascript do %>\n"
+            )
+
+            for script in vite_scripts:
+                erb_output += f"  <%= vite_javascript_tag '{script}' %>\n"
+            erb_output += "<% end %>\n"
+
+            with open(file, "w", encoding="utf-8") as f:
+                f.write(erb_output)
+
+            Messenger.success(f"Converted Rails view: {file.relative_to(self.project_views_path)}")
+            count += 1
+
+        Messenger.success(f"\n{count} Rails view files converted successfully.")
+
+    def _extract_all_partials_with_params(self, content):
+        """
+        Finds all @@include("partials/partial_name.html", {...}) with params,
+        returns list of tuples: (full_include_string, partial_name, params_dict)
+        """
+        results = []
+
+        # Regex to find all @@include statements with params JSON (non-greedy, multiline safe)
+        pattern = r'@@include\(\s*["\']\.?\/?partials\/([^"\']+\.html)["\']\s*,\s*(\{(?:[^{}]|\{[^{}]*\})*\})\s*\)'
+
+        for match in re.finditer(pattern, content, flags=re.DOTALL):
+            full_include = match.group(0)
+            partial_filename = match.group(1)  # e.g. 'menu.html'
+            params_str = match.group(2)
+
+            # Extract partial name without extension
+            partial_name = partial_filename.replace('.html', '')
+
+            # Parse params
+            params_dict = self._extract_params_from_include(params_str)
+
+            results.append((full_include, partial_name, params_dict))
+
+        return results
 
     def _extract_page_title_include(self, content):
         """
@@ -88,91 +239,11 @@ class RoRConverter:
         if brace_count != 0:
             return None, None
 
-        params_str = content[start_pos:end_pos+1]
+        params_str = content[start_pos:end_pos + 1]
         # full include string ends at position after the closing brace + 1 for ')'
-        full_include_string = content[match_start.start():end_pos+2]  # includes final '})'
+        full_include_string = content[match_start.start():end_pos + 2]  # includes final '})'
 
         return full_include_string, params_str
-
-    def _convert(self):
-        """
-        Converts HTML files with custom @@include statements into Ruby on Rails ERB views.
-        """
-        count = 0
-
-        for file in self.project_views_path.rglob(f"*.html.erb"):
-            with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            original_content = content
-            soup_original = BeautifulSoup(original_content, 'html.parser')
-
-            # Extract and remove page-title include robustly
-            full_include_string, params_str = self._extract_page_title_include(original_content)
-
-            page_title_render_string = ""
-            page_title_include_params = {}
-            title_from_page_title_include = None
-
-            if full_include_string and params_str:
-                page_title_include_params = self._extract_params_from_include(params_str)
-
-                if page_title_include_params:
-                    def ruby_value(v):
-                        if isinstance(v, str):
-                            escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
-                            return f'"{escaped}"'
-                        elif isinstance(v, bool):
-                            return 'true' if v else 'false'
-                        elif v is None:
-                            return 'nil'
-                        else:
-                            return str(v)
-
-                    params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in page_title_include_params.items())
-                    page_title_render_string = f"<%= render 'layouts/partials/page_title', {params_str_ruby} %>\n\n"
-
-                    if "title" in page_title_include_params:
-                        title_from_page_title_include = page_title_include_params["title"]
-
-                content = content.replace(full_include_string, "")
-
-            # Determine the main page title for @title ERB variable
-            title = title_from_page_title_include or self._extract_title_from_soup_or_data(soup_original) or "Page Title"
-
-            erb_header = f"<% @title = \"{title}\" %>\n\n"
-
-            # Convert all other @@include except page-title.html
-            content = self._convert_general_includes(content)
-
-            soup_current = BeautifulSoup(content, 'html.parser')
-            main_content = self._extract_main_content(soup_current, content)
-
-            # Convert image paths with placeholders to prevent ERB escaping
-            main_content = self._convert_image_paths(main_content)
-
-            vite_scripts = self._extract_vite_scripts(soup_original)
-
-            main_content = self._remove_script_tags(main_content)
-
-            erb_output = (
-                erb_header +
-                page_title_render_string +
-                main_content.strip() +
-                "\n\n<% content_for :javascript do %>\n"
-            )
-
-            for script in vite_scripts:
-                erb_output += f"  <%= vite_javascript_tag '{script}' %>\n"
-            erb_output += "<% end %>\n"
-
-            with open(file, "w", encoding="utf-8") as f:
-                f.write(erb_output)
-
-            Messenger.success(f"Converted Rails view: {file.relative_to(self.project_views_path)}")
-            count += 1
-
-        Messenger.success(f"\n{count} Rails view files converted successfully.")
 
     def _convert_general_includes(self, content):
         pattern_general = r'@@include\(\s*["\']\.?\/partials\/(?!page-title\.html)([^"\']+)["\'](?:\s*,\s*(array\(.*?\)|\{.*?\}))?\s*\)'
@@ -322,68 +393,95 @@ class RoRConverter:
             vite_scripts.append(normalized_src)
         return vite_scripts
 
-    import os
-    import shutil
-
-    def _create_ror_controller_file(self,path, controller_name, actions):
+    def _create_controller_file(self, path, controller_name, actions):
         """
-        Creates a Rails controller Ruby file with empty action methods.
+        Creates a Rails controller Ruby file with appropriate action methods.
         """
         class_name = f"{controller_name.capitalize()}Controller"
 
-        methods = "\n\n".join([f"  def {action}\n  end" for action in actions])
+        methods = ""
+        for action_name, template_path, nested in actions:
+            methods += f"  def {action_name}\n"
+            if nested:
+                methods += f"    render template: \"{template_path}\"\n"
+            methods += "  end\n\n"
 
         controller_code = f"""class {class_name} < ApplicationController
-    {methods}
+    {methods.strip()}
     end
     """
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(controller_code)
 
-    def _create_ror_controllers(self,views_folder, destination_folder, ignore_list=None):
-        """
-        Generates Rails controller files based on folders and .html.erb files in the views folder.
-        Deletes existing controllers folder if it exists.
-
-        :param views_folder: Path to the Rails views folder (e.g., app/views)
-        :param destination_folder: Where to create controllers folder (e.g., app/controllers)
-        :param ignore_list: List of folder or file names to ignore
-        """
+    def _create_controllers(self, ignore_list=None):
         ignore_list = ignore_list or []
 
-        controllers_path = os.path.join(destination_folder)
+        if os.path.isdir(self.project_controllers_path):
+            shutil.rmtree(self.project_controllers_path)
+        os.makedirs(self.project_controllers_path, exist_ok=True)
 
-        # Remove existing controllers folder (optional, be careful!)
-        if os.path.isdir(controllers_path):
-            print(f"🧹 Removing existing controllers folder: {controllers_path}")
-            shutil.rmtree(controllers_path)
+        controllers_actions = {}
 
-        os.makedirs(controllers_path, exist_ok=True)
-
-        # List all folders in views (each folder usually represents a controller)
-        for folder_name in os.listdir(views_folder):
-            if folder_name in ignore_list:
+        for controller_name in os.listdir(self.project_views_path):
+            if controller_name in ignore_list:
                 continue
-
-            folder_path = os.path.join(views_folder, folder_name)
-            if not os.path.isdir(folder_path):
+            controller_folder_path = os.path.join(self.project_views_path, controller_name)
+            if not os.path.isdir(controller_folder_path):
                 continue
 
             actions = []
-            for file in os.listdir(folder_path):
-                if file in ignore_list:
-                    continue
-                # Only consider .html.erb files that are not partials (no leading _)
-                if file.endswith(".html.erb") and not file.startswith("_"):
-                    action_name = file.replace(".html.erb", "")
-                    actions.append(action_name)
+
+            for root, dirs, files in os.walk(controller_folder_path):
+                dirs[:] = [d for d in dirs if d not in ignore_list]
+
+                for file in files:
+                    if file in ignore_list:
+                        continue
+                    if file.endswith(".html.erb") and not file.startswith("_"):
+                        full_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(full_path, self.project_views_path)
+                        rel_path_no_ext = rel_path[:-len(".html.erb")]
+                        parts = rel_path_no_ext.split(os.sep)
+                        nested = len(parts) > 2
+                        action_name = "_".join(parts[1:]) if nested else parts[1]
+                        template_path = rel_path_no_ext.replace(os.sep, "/")
+                        actions.append((action_name, template_path, nested))
 
             if actions:
-                controller_file_name = f"{folder_name}_controller.rb"
-                controller_file_path = os.path.join(controllers_path, controller_file_name)
-                self._create_ror_controller_file(controller_file_path, folder_name, actions)
-                print(f"✅ Created: {controller_file_path}")
+                controller_file_name = f"{controller_name}_controller.rb"
+                controller_file_path = os.path.join(self.project_controllers_path, controller_file_name)
+                self._create_controller_file(controller_file_path, controller_name, actions)
+                controllers_actions[controller_name] = actions
+                Messenger.success(f"Created: {controller_file_path}")
 
-        print("✨ Rails controller generation completed.")
+        self._create_routes(controllers_actions)
+        Messenger.success("Controller and routes generation completed.")
 
+    def _create_routes(self, controllers_actions):
+        """
+        Generate Rails 'get' routes and append to routes.rb
+
+        :param controllers_actions: Dict with controller_name as key, and list of (action_name, template_path, nested) tuples as value
+        """
+        route_lines = []
+
+        for controller_name, actions in controllers_actions.items():
+            for action_name, template_path, nested in actions:
+                if "_" in action_name:
+                    # Nested action: replace underscores with dashes in URL path
+                    url_path_action = action_name.replace("_", "-")
+                    url_path = f"{controller_name}/{url_path_action}"
+                    route_line = f'get "{url_path}", to: \'{controller_name}#{action_name}\''
+                else:
+                    # Flat action: simple route without `to:`
+                    url_path = f"{controller_name}/{action_name}"
+                    route_line = f'get "{url_path}"'
+
+                route_lines.append(route_line)
+
+        with open(self.project_routes_path, "a", encoding="utf-8") as f:
+            for line in route_lines:
+                f.write(line + "\n")
+
+        Messenger.success(f"Routes appended to {self.project_routes_path}")
