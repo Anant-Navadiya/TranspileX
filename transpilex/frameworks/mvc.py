@@ -267,6 +267,6 @@ def create_mvc_project(project_name, source_folder, assets_folder):
     create_gulpfile_js(project_root, './wwwroot')
 
     # Update dependencies
-    update_package_json(source_folder, project_root, project_name)
+    # update_package_json(source_folder, project_root, project_name)
 
     print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")

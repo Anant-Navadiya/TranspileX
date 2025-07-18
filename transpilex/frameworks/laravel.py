@@ -336,7 +336,7 @@ class LaravelConverter:
                 params_list.append(f"'{key}' => '{str(value).replace('\'', '\\\'')}'")
         return ", ".join(params_list)
 
-    def _format_page_title_blade_include(self,data_dict):
+    def _format_page_title_blade_include(self, data_dict):
         """
         Generates the full Blade @include directive for page-title with all parameters.
         """

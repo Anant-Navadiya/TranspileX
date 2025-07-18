@@ -5,7 +5,7 @@ ASSETS_PATH = "./assets"
 SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'cakephp', 'codeigniter', 'symfony', 'node', 'django', 'flask', 'ror', 'core',
                         'mvc',
                         'blazor',
-                        'core-to-mvc']
+                        'core-to-mvc', 'spring']
 
 FILE_INCLUDE_PREFIX = '@@'
 FILE_INCLUDE_COMMAND = 'include'
@@ -61,3 +61,11 @@ BLAZOR_DESTINATION_FOLDER = 'blazor'
 BLAZOR_ASSETS_FOLDER = 'wwwroot'
 BLAZOR_EXTENSION = '.razor'
 BLAZOR_GULP_ASSETS_PATH = './wwwroot'
+
+
+# Spring
+SPRING_PROJECT_CREATION_COMMAND = 'dotnet new webapp -n'
+SPRING_DESTINATION_FOLDER = 'spring'
+SPRING_ASSETS_FOLDER = 'src/main/resources/static/'
+SPRING_EXTENSION = '.html'
+SPRING_GULP_ASSETS_PATH = './src/main/resources/static/'

@@ -13,6 +13,7 @@ from transpilex.frameworks.mvc import create_mvc_project
 from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.ror import RoRConverter
+from transpilex.frameworks.spring import SpringConverter
 from transpilex.frameworks.symfony import create_symfony_project
 
 from transpilex.helpers.system_check import system_check
@@ -41,6 +42,7 @@ def process_framework(framework_name, project_name, source_folder, assets_folder
         'mvc': make_args_handler(create_mvc_project),
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
+        'spring': make_class_handler(SpringConverter),
     }
 
     handler = handlers.get(framework_name)
