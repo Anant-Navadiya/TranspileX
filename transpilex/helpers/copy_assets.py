@@ -8,41 +8,40 @@ def copy_assets(source_path: Path, destination_path: Path, preserve=None):
     """
     Cleans the destination_path (except for items listed in preserve),
     then copies assets from source_path to destination_path.
-
-    Args:
-        source_path (str | Path): Folder containing custom assets.
-        destination_path (str | Path): CakePHP webroot or equivalent.
-        preserve (list[str]): File/folder names to keep in destination.
+    Only runs if source_path exists.
     """
     source = Path(source_path)
+
+    if not source.exists():
+        Messenger.warning(f"Assets source not found at {source}")
+        return
+
     destination = Path(destination_path)
     preserve = set(preserve or [])
 
     # Ensure destination exists
     destination.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Clean destination except preserved items
-    Messenger.info(f"Cleaning '{destination}' (preserving: {preserve})")
+    # Clean destination except preserved items
+    Messenger.info(f"Cleaning '{destination}'{f' preserving: {preserve}' if preserve else ''}")
 
     for item in destination.iterdir():
         if item.name in preserve:
-            print(f"⏭️ Preserved: {item}")
+            Messenger.preserved(f"Preserved: {item}")
             continue
         if item.is_dir():
             shutil.rmtree(item)
-            print(f"🗑️ Removed folder: {item}")
+            Messenger.removed(f"Removed folder: {item}")
         else:
             item.unlink()
-            print(f"🗑️ Removed file: {item}")
+            Messenger.removed(f"Removed file: {item}")
 
-    # Step 2: Copy new assets
-    print(f"\n📦 Copying assets from '{source}' to '{destination}'")
+    # Copy new assets
+    Messenger.info(f"Copying assets from '{source}' to '{destination}'")
     for item in source.iterdir():
         target = destination / item.name
         if item.is_dir():
             shutil.copytree(item, target)
         else:
             shutil.copy2(item, target)
-        print(f"✅ Copied: {item} → {target}")
-
-    print("\n🎉 Asset copy completed.\n")
+        Messenger.success(f"Copied: {item} → {target}")

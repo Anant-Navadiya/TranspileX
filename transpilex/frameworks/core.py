@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing
@@ -281,7 +281,7 @@ def create_core_project(project_name, source_folder, assets_folder):
     assets_path = project_root / "wwwroot"
     copy_assets(assets_folder, assets_path)
 
-    create_gulpfile_js(project_root, './wwwroot')
+    add_gulpfile(project_root, './wwwroot')
 
     # update_package_json(source_folder, project_root, project_name)
 

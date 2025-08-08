@@ -5,8 +5,8 @@ env
 .venv
 venv
 transpilex.egg-info
-html
 assets
+html
 php
 laravel
 cakephp
@@ -19,4 +19,5 @@ core
 mvc
 blazor
 ror
+spring
 package.json

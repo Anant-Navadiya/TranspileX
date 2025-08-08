@@ -6,7 +6,7 @@ from pathlib import Path
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, MVC_DESTINATION_FOLDER, MVC_ASSETS_FOLDER, \
     MVC_PROJECT_CREATION_COMMAND, MVC_GULP_ASSETS_PATH
 from transpilex.helpers import copy_assets
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.messages import Messenger
 from transpilex.helpers.update_package_json import update_package_json
 
@@ -82,7 +82,7 @@ class CoreToMvcConverter:
 
         copy_assets(self.assets_path, self.project_assets_path)
 
-        create_gulpfile_js(self.project_root, MVC_GULP_ASSETS_PATH)
+        add_gulpfile(self.project_root, MVC_GULP_ASSETS_PATH)
 
         # update_package_json(self.source_path, self.project_root, self.project_name)
 

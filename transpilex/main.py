@@ -15,72 +15,94 @@ from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.ror import RoRConverter
 from transpilex.frameworks.spring import SpringConverter
 from transpilex.frameworks.symfony import create_symfony_project
+from transpilex.helpers.messages import Messenger
 
 from transpilex.helpers.system_check import system_check
 
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, SUPPORTED_FRAMEWORKS
 
 
-def process_framework(framework_name, project_name, source_folder, assets_folder):
-    def make_args_handler(func):
-        return lambda: func(project_name, source_folder, assets_folder)
+def process_framework(args):
+    """
+    Initializes and runs the correct framework converter based on CLI arguments.
+    """
+    framework_name = args.framework
 
+    handler_args = {
+        "project_name": args.project,
+        "source_path": args.src,
+        "assets_path": args.assets,
+        "include_gulp": not args.no_gulp
+    }
+
+    # Simplified handlers using a dictionary of keyword arguments
     def make_class_handler(cls):
-        return lambda: cls(project_name)
+        return lambda: cls(**handler_args)
 
+    def make_func_handler(func):
+        return lambda: func(
+            handler_args["project_name"],
+            handler_args["source_path"],
+            handler_args["assets_path"]
+        )
+
+    # Map framework names to their corresponding handlers
     handlers = {
         'php': make_class_handler(PHPConverter),
         'laravel': make_class_handler(LaravelConverter),
         'cakephp': make_class_handler(CakePHPConverter),
         'codeigniter': make_class_handler(CodeIgniterConverter),
-        'symfony': make_args_handler(create_symfony_project),
-        'node': make_args_handler(create_node_project),
-        'django': make_args_handler(create_django_project),
-        'flask': make_args_handler(create_flask_project),
         'ror': make_class_handler(RoRConverter),
-        'core': make_args_handler(create_core_project),
-        'mvc': make_args_handler(create_mvc_project),
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
         'spring': make_class_handler(SpringConverter),
+
+        'symfony': make_func_handler(create_symfony_project),
+        'node': make_func_handler(create_node_project),
+        'django': make_func_handler(create_django_project),
+        'flask': make_func_handler(create_flask_project),
+        'core': make_func_handler(create_core_project),
+        'mvc': make_func_handler(create_mvc_project),
     }
 
     handler = handlers.get(framework_name)
     if handler:
         handler()
     else:
-        print(f"Framework '{framework_name}' is not implemented yet.")
-
-
-def run_generate(args):
-    process_framework(args.framework, args.project, args.src, args.assets)
+        Messenger.error(f"Framework '{framework_name}' is not implemented yet.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Transpilex CLI – Convert HTML into frameworks")
-    parser.add_argument('--version', action='version', version=PACKAGE_VERSION)
+    """
+    Main entry point for the Transpilex CLI.
+    """
+    parser = argparse.ArgumentParser(
+        description="Transpilex CLI – Convert static HTML projects into dynamic frameworks.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}")
 
-    # CLI flags for system commands
-    parser.add_argument('--system-check', action='store_true', help="Show prerequisites for all frameworks")
-    parser.add_argument('--supported-frameworks', action='store_true', help="Show all supported frameworks")
+    # --- Commands as flags ---
+    parser.add_argument('--check', action='store_true', help='Check system for framework prerequisites.')
+    parser.add_argument('--list', action='store_true', help='List all supported frameworks.')
 
-    # Default positional args for project generation
-    parser.add_argument("project", nargs='?', help="Name of the project")
-    parser.add_argument("framework", nargs='?', choices=SUPPORTED_FRAMEWORKS, help="Target framework")
-    parser.add_argument("--src", default=SOURCE_PATH, help="Source HTML directory")
-    parser.add_argument("--assets", default=ASSETS_PATH, help="Assets directory")
+    # --- Default generation arguments ---
+    parser.add_argument("project", nargs='?', help="Name for the new project (e.g., 'my-awesome-site').")
+    parser.add_argument("framework", nargs='?', choices=SUPPORTED_FRAMEWORKS, help="Target framework to convert to.")
+    parser.add_argument("--src", default=SOURCE_PATH, help=f"Source HTML directory (default: {SOURCE_PATH}).")
+    parser.add_argument("--assets", default=ASSETS_PATH, help=f"Source assets directory (default: {ASSETS_PATH}).")
+    parser.add_argument("--no-gulp", action='store_true',
+                        help="Disable creation of Gulpfile and package.json dependencies.")
 
     args = parser.parse_args()
 
-    if args.system_check:
+    if args.check:
         system_check(args)
-    elif args.supported_frameworks:
-        print("✔ Supported frameworks:\n- " + "\n- ".join(SUPPORTED_FRAMEWORKS))
+    elif args.list:
+        print("Supported frameworks:")
+        for framework in sorted(SUPPORTED_FRAMEWORKS):
+            print(f"  - {framework}")
     elif args.project and args.framework:
-        run_generate(args)
+        process_framework(args)
     else:
         parser.print_help()
-
-
-if __name__ == "__main__":
-    main()

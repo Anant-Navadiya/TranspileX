@@ -39,4 +39,4 @@ class SpringConverter:
 
         r = requests.get("https://start.spring.io/starter.zip", params=params)
         z = zipfile.ZipFile(io.BytesIO(r.content))
-        z.extractall(self.project_name)
+        z.extractall(self.destination_path)

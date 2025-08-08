@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from transpilex.helpers import copy_assets, change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
@@ -237,7 +237,7 @@ def create_symfony_project(project_name, source_folder, assets_folder):
     copy_assets(assets_folder, assets_path, preserve=["index.php"])
 
     # Create gulpfile.js
-    create_gulpfile_js(project_root, './public')
+    add_gulpfile(project_root, './public')
 
     # Update dependencies
     # update_package_json(source_folder, project_root, project_name)

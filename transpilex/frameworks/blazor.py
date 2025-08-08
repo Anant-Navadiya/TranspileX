@@ -10,7 +10,7 @@ from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, BLAZOR_ASSETS_FOLDE
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.change_extension import change_extension
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.messages import Messenger
 from transpilex.helpers.replace_html_links import replace_html_links
@@ -77,7 +77,7 @@ class BlazorConverter:
 
         copy_assets(self.assets_path, self.project_assets_path)
 
-        create_gulpfile_js(self.project_root, BLAZOR_GULP_ASSETS_PATH)
+        add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH)
 
         Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 

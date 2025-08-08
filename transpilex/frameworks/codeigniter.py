@@ -3,13 +3,13 @@ import json
 import subprocess
 from pathlib import Path
 
-from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, CODEIGNITER_DESTINATION_FOLDER, CODEIGNITER_ASSETS_FOLDER, \
+from transpilex.config.base import CODEIGNITER_DESTINATION_FOLDER, CODEIGNITER_ASSETS_FOLDER, \
     CODEIGNITER_PROJECT_CREATION_COMMAND, CODEIGNITER_EXTENSION, CODEIGNITER_ASSETS_PRESERVE, \
     CODEIGNITER_GULP_ASSETS_PATH
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.messages import Messenger
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
@@ -17,11 +17,10 @@ from transpilex.helpers.update_package_json import update_package_json
 
 class CodeIgniterConverter:
 
-    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=CODEIGNITER_DESTINATION_FOLDER,
-                 assets_path=ASSETS_PATH):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
         self.project_name = project_name
         self.source_path = Path(source_path)
-        self.destination_path = Path(destination_folder)
+        self.destination_path = Path(CODEIGNITER_DESTINATION_FOLDER)
         self.assets_path = Path(assets_path)
 
         self.project_root = self.destination_path / project_name
@@ -55,7 +54,7 @@ class CodeIgniterConverter:
 
         copy_assets(self.assets_path, self.project_assets_path, preserve=CODEIGNITER_ASSETS_PRESERVE)
 
-        create_gulpfile_js(self.project_root, CODEIGNITER_GULP_ASSETS_PATH)
+        add_gulpfile(self.project_root, CODEIGNITER_GULP_ASSETS_PATH)
 
         # update_package_json(self.source_path, self.project_root, self.project_name)
 
@@ -72,7 +71,6 @@ class CodeIgniterConverter:
 
                 original_content = content
 
-
                 # Handles @@include with JSON parameters: {"key": "value"}
                 def include_with_json_params(match):
                     file_path = match.group(1).strip()
@@ -85,7 +83,8 @@ class CodeIgniterConverter:
                         view_name = Path(file_path).stem  # Get base name without extension
                         return f'<?php echo view("{view_name}", {php_array}) ?>'
                     except json.JSONDecodeError as e:
-                        Messenger.warning(f"JSON decode error in @@include for file {file.name}: {e}\nContent: {match.group(0)}")
+                        Messenger.warning(
+                            f"JSON decode error in @@include for file {file.name}: {e}\nContent: {match.group(0)}")
                         return match.group(0)  # Return original match on error
 
                 # Handles @@include with PHP array parameters: array("key" => "value")

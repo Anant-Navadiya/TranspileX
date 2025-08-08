@@ -35,7 +35,7 @@ def change_extension_and_copy(new_extension, src_folder, dist_folder):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(file, destination)
 
-            print(f"✅ {file} → {destination}")
+            Messenger.success(f"{file} → {destination}")
             count += 1
 
     Messenger.success(f"{count} files processed and saved in '{dist_folder}' with '{new_extension}' extension.")
@@ -61,7 +61,7 @@ def change_extension(new_extension, src_path: Path, dist_path: Path):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(file, destination)
 
-            print(f"✅ {file} → {destination}")
+            Messenger.success(f"{file} → {destination}")
             count += 1
 
     Messenger.success(f"{count} files processed and saved in '{dist_path}' with '{new_extension}' extension.")

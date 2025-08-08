@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 
 from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.restructure_files import apply_casing
 from transpilex.helpers.update_package_json import update_package_json
 
@@ -264,7 +264,7 @@ def create_mvc_project(project_name, source_folder, assets_folder):
     copy_assets(assets_folder, assets_path)
 
     # Create gulpfile.js
-    create_gulpfile_js(project_root, './wwwroot')
+    add_gulpfile(project_root, './wwwroot')
 
     # Update dependencies
     # update_package_json(source_folder, project_root, project_name)

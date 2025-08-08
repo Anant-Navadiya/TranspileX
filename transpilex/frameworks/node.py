@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from transpilex.helpers import change_extension_and_copy, copy_assets
-from transpilex.helpers.create_gulpfile import create_gulpfile_js
+from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.update_package_json import update_package_json
 
@@ -164,7 +164,7 @@ def create_node_project(project_name, source_folder, assets_folder):
     copy_assets(assets_folder, assets_path)
 
     # Create gulpfile.js
-    create_gulpfile_js(project_root, './assets')
+    add_gulpfile(project_root, './assets')
 
     # Update dependencies
     # update_package_json(source_folder, project_root, project_name)
