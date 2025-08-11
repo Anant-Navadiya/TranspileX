@@ -22,31 +22,82 @@ from transpilex.helpers.system_check import system_check
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, SUPPORTED_FRAMEWORKS
 
 
-def process_framework(args):
-    """
-    Initializes and runs the correct framework converter based on CLI arguments.
-    """
-    framework_name = args.framework
+def main():
+    parser = argparse.ArgumentParser(
+        description="Transpilex CLI – Convert static HTML projects into dynamic frameworks."
+    )
+    parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}")
+    parser.add_argument('--check', action='store_true')
+    parser.add_argument('--list', action='store_true')
+
+    # First positional: project name
+    parser.add_argument("project", help="Project name")
+
+    subparsers = parser.add_subparsers(dest="framework", required=True)
+
+    # helper for subparser common options that should be AFTER framework
+    def add_common_framework_args(sp):
+        sp.add_argument("--src", default=SOURCE_PATH)
+        sp.add_argument("--assets", default=ASSETS_PATH)
+
+    # php
+    php_p = subparsers.add_parser("php", help="Convert to PHP")
+    add_common_framework_args(php_p)
+    php_p.add_argument("--no-gulp", action='store_true')
+
+    # cakephp
+    cakephp_p = subparsers.add_parser("cakephp", help="Convert to CakePHP")
+    add_common_framework_args(cakephp_p)
+    cakephp_p.add_argument("--no-gulp", action='store_true')
+
+    # codeigniter
+    codeigniter_p = subparsers.add_parser("codeigniter", help="Convert to CodeIgniter")
+    add_common_framework_args(codeigniter_p)
+    codeigniter_p.add_argument("--no-gulp", action='store_true')
+
+    # laravel
+    laravel_p = subparsers.add_parser("laravel", help="Convert to Laravel")
+    add_common_framework_args(laravel_p)
+    # laravel_p.add_argument("--laravel-breeze", action='store_true')
+    # laravel_p.add_argument("--laravel-jetstream", action='store_true')
+
+    # django
+    django_p = subparsers.add_parser("django", help="Convert to Django")
+    add_common_framework_args(django_p)
+    django_p.add_argument("--django-app", default="core")
+    django_p.add_argument("--django-db", default="sqlite", choices=["sqlite", "postgres"])
+
+    args = parser.parse_args()
+
+    if args.check:
+        system_check(args)
+        return
+    if args.list:
+        print("Supported frameworks:")
+        for sp in subparsers.choices:
+            print(f"  - {sp}")
+        return
+    if not getattr(args, "framework", None):
+        parser.print_help()
+        return
 
     handler_args = {
         "project_name": args.project,
         "source_path": args.src,
-        "assets_path": args.assets,
-        "include_gulp": not args.no_gulp
+        "assets_path": args.assets
     }
 
-    # Simplified handlers using a dictionary of keyword arguments
     def make_class_handler(cls):
-        return lambda: cls(**handler_args)
+        return lambda: cls(**handler_args, **framework_specific_kwargs(args))
 
     def make_func_handler(func):
         return lambda: func(
             handler_args["project_name"],
             handler_args["source_path"],
-            handler_args["assets_path"]
+            handler_args["assets_path"],
+            **framework_specific_kwargs(args)
         )
 
-    # Map framework names to their corresponding handlers
     handlers = {
         'php': make_class_handler(PHPConverter),
         'laravel': make_class_handler(LaravelConverter),
@@ -56,7 +107,6 @@ def process_framework(args):
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
         'spring': make_class_handler(SpringConverter),
-
         'symfony': make_func_handler(create_symfony_project),
         'node': make_func_handler(create_node_project),
         'django': make_func_handler(create_django_project),
@@ -65,44 +115,29 @@ def process_framework(args):
         'mvc': make_func_handler(create_mvc_project),
     }
 
-    handler = handlers.get(framework_name)
-    if handler:
-        handler()
-    else:
-        Messenger.error(f"Framework '{framework_name}' is not implemented yet.")
+    handler = handlers.get(args.framework)
+    if not handler:
+        Messenger.error(f"Framework '{args.framework}' is not implemented yet.")
+        return
+
+    handler()
 
 
-def main():
+def framework_specific_kwargs(args):
     """
-    Main entry point for the Transpilex CLI.
+    Extract only the flags relevant to the chosen subparser.
+    Keep it explicit to avoid leaking unrelated args.
     """
-    parser = argparse.ArgumentParser(
-        description="Transpilex CLI – Convert static HTML projects into dynamic frameworks.",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}")
-
-    # --- Commands as flags ---
-    parser.add_argument('--check', action='store_true', help='Check system for framework prerequisites.')
-    parser.add_argument('--list', action='store_true', help='List all supported frameworks.')
-
-    # --- Default generation arguments ---
-    parser.add_argument("project", nargs='?', help="Name for the new project (e.g., 'my-awesome-site').")
-    parser.add_argument("framework", nargs='?', choices=SUPPORTED_FRAMEWORKS, help="Target framework to convert to.")
-    parser.add_argument("--src", default=SOURCE_PATH, help=f"Source HTML directory (default: {SOURCE_PATH}).")
-    parser.add_argument("--assets", default=ASSETS_PATH, help=f"Source assets directory (default: {ASSETS_PATH}).")
-    parser.add_argument("--no-gulp", action='store_true',
-                        help="Disable creation of Gulpfile and package.json dependencies.")
-
-    args = parser.parse_args()
-
-    if args.check:
-        system_check(args)
-    elif args.list:
-        print("Supported frameworks:")
-        for framework in sorted(SUPPORTED_FRAMEWORKS):
-            print(f"  - {framework}")
-    elif args.project and args.framework:
-        process_framework(args)
-    else:
-        parser.print_help()
+    if args.framework == "php" or args.framework == "cakephp" or args.framework == "codeigniter":
+        return {"include_gulp": not args.no_gulp}
+    if args.framework == "laravel":
+        return {
+            # "use_breeze": args.laravel_breeze,
+            # "use_jetstream": args.laravel_jetstream,
+        }
+    if args.framework == "django":
+        return {
+            "app_name": args.django_app,
+            "db": args.django_db,
+        }
+    return {}

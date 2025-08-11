@@ -5,7 +5,9 @@ import subprocess
 from pathlib import Path
 
 from transpilex.config.base import CAKEPHP_DESTINATION_FOLDER, \
-    CAKEPHP_ASSETS_FOLDER, CAKEPHP_EXTENSION, CAKEPHP_PROJECT_CREATION_COMMAND, CAKEPHP_ASSETS_PRESERVE
+    CAKEPHP_ASSETS_FOLDER, CAKEPHP_EXTENSION, CAKEPHP_PROJECT_CREATION_COMMAND, CAKEPHP_ASSETS_PRESERVE, \
+    CAKEPHP_GULP_ASSETS_PATH
+from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
@@ -22,7 +24,7 @@ class CakePHPConverter:
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(CAKEPHP_DESTINATION_FOLDER)
-        self.assets_path = Path(assets_path)
+        self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
 
         self.project_root = self.destination_path / self.project_name
@@ -45,9 +47,9 @@ class CakePHPConverter:
 
         try:
             subprocess.run(f'{CAKEPHP_PROJECT_CREATION_COMMAND} {self.project_root}', shell=True, check=True)
-            Messenger.success(f"CakePHP project created.")
+            Messenger.success(f"CakePHP project created")
         except subprocess.CalledProcessError:
-            Messenger.error(f"CakePHP project creation failed.")
+            Messenger.error(f"CakePHP project creation failed")
             return
 
         empty_folder_contents(self.project_pages_path)
@@ -58,9 +60,8 @@ class CakePHPConverter:
 
         if self.project_partials_path.exists() and self.project_partials_path.is_dir():
             move_files(self.project_partials_path, self.project_element_path)
-            self._convert(self.project_element_path)
 
-        self._replace_template_variables()
+        self._replace_partial_variables()
 
         self._rename_hyphens_to_underscores()
 
@@ -73,7 +74,8 @@ class CakePHPConverter:
         copy_assets(self.assets_path, self.project_assets_path, preserve=CAKEPHP_ASSETS_PRESERVE)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, CAKEPHP_ASSETS_FOLDER)
+            add_gulpfile(self.project_root, CAKEPHP_GULP_ASSETS_PATH)
+            add_plugins_file(self.source_path, self.project_root)
             update_package_json(self.source_path, self.project_root, self.project_name)
 
         Messenger.project_end(self.project_name, str(self.project_root))
@@ -85,7 +87,7 @@ class CakePHPConverter:
             content = file.read_text(encoding="utf-8")
             original_content = content
 
-            if "@@include" not in content and ".html" not in content:
+            if "@@include" not in content and ".html" and "assets" not in content:
                 continue
 
             # === Handle @@include with parameters ===
@@ -96,7 +98,7 @@ class CakePHPConverter:
                 # Normalize sloppy JSON: remove trailing commas; convert single-quoted strings to double-quoted
                 fixed = re.sub(r",\s*(?=[}\]])", "", param_json)  # trailing commas
                 fixed = re.sub(r"'([^'\\]*(?:\\.[^'\\]*)*)'", r'"\1"', fixed)  # 'value' -> "value"
-                # (Optional) single-quoted keys -> double-quoted keys
+                # single-quoted keys -> double-quoted keys
                 fixed = re.sub(r"([{\s,])'([^']+)'\s*:", r'\1"\2":', fixed)
 
                 try:
@@ -136,10 +138,10 @@ class CakePHPConverter:
 
             if content != original_content:
                 file.write_text(content, encoding="utf-8")
-                Messenger.replaced(str(file))
+                Messenger.converted(str(file))
                 count += 1
 
-        Messenger.success(f"Replaced includes in {count} files in '{directory}'.")
+        Messenger.info(f"{count} files converted in {directory}")
 
     def _add_root_method_to_app_controller(self):
 
@@ -149,7 +151,7 @@ class CakePHPConverter:
 
         content = self.project_pages_controller_path.read_text(encoding="utf-8")
         if 'public function root(' in content:
-            Messenger.info("Method 'root' already exists in PagesController.")
+            Messenger.warning("Method 'root' already exists in PagesController")
             return
 
         method_code = """
@@ -167,7 +169,7 @@ class CakePHPConverter:
     """
         updated = re.sub(r"^\}\s*$", method_code + "\n}", content, flags=re.MULTILINE)
         self.project_pages_controller_path.write_text(updated, encoding="utf-8")
-        Messenger.success("Added 'root' method to AppController.")
+        Messenger.created("root method in AppController")
 
     def _patch_routes(self):
 
@@ -184,9 +186,9 @@ class CakePHPConverter:
 
         if original in content:
             self.project_routes_path.write_text(content.replace(original, replacement), encoding="utf-8")
-            Messenger.updated("routes.php with custom routing.")
+            Messenger.updated("routes.php with custom routing")
         else:
-            Messenger.warning("Expected line not found. Skipping patch.")
+            Messenger.warning("Expected line not found. Skipping patch")
 
     def _rename_hyphens_to_underscores(self, ignore_list=None):
         if ignore_list is None:
@@ -217,7 +219,7 @@ class CakePHPConverter:
                     dst = Path(dirpath) / dst_name
                     src.rename(dst)
 
-    def _replace_template_variables(self):
+    def _replace_partial_variables(self):
         """
         Replace @@<var> with short echo '<?= $<var> ?>' across all PHP files.
         Skips control/directive tokens like @@if and @@include.
@@ -236,10 +238,11 @@ class CakePHPConverter:
             new_content = pattern.sub(r'<?= $\1 ?>', content)
             if new_content != content:
                 file.write_text(new_content, encoding="utf-8")
+                Messenger.updated(str(file))
                 count += 1
 
         if count:
-            Messenger.success(f"Replaced template variables in {count} files.")
+            Messenger.info(f"{count} files updated in {self.project_element_path}")
 
     def _replace_default_layout(self):
         layout_path = self.project_layout_path
@@ -250,4 +253,4 @@ class CakePHPConverter:
 """
 
         layout_path.write_text(new_content, encoding="utf-8")
-        Messenger.updated(f"layout: {layout_path}")
+        Messenger.updated(str(layout_path))

@@ -39,7 +39,7 @@ def update_package_json(source_folder: Path, destination_folder: Path, project_n
             Messenger.warning(f"Invalid JSON in {source_path}, creating a new package.json...")
             data = {}
     else:
-        Messenger.warning(f"Package.json not found in {source_folder}, creating a new one...")
+        Messenger.warning(f"package.json not found in root, creating a new one...")
         data = {}
 
     # Apply defaults
@@ -59,4 +59,4 @@ def update_package_json(source_folder: Path, destination_folder: Path, project_n
     with open(destination_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-    Messenger.success(f"Package.json is ready at: {destination_path}")
+    Messenger.info(f"package.json is ready at: {destination_path}")

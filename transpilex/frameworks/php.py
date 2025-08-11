@@ -2,6 +2,7 @@ import re
 import json
 from pathlib import Path
 
+from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
@@ -20,14 +21,13 @@ class PHPConverter:
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(PHP_DESTINATION_FOLDER)
-        self.assets_path = Path(assets_path)
+        self.assets_path = Path(self.source_path / assets_path)
+        self.include_gulp = include_gulp
 
         self.project_root = self.destination_path / project_name
         self.project_src_path = self.project_root / PHP_SRC_FOLDER
         self.project_assets_path = self.project_src_path / PHP_ASSETS_FOLDER
         self.project_partials_path = self.project_src_path / "partials"
-
-        self.include_gulp = include_gulp
 
         self.project_src_path.mkdir(parents=True, exist_ok=True)
 
@@ -41,17 +41,19 @@ class PHPConverter:
 
         self._convert()
 
-        self._replace_template_variables()
+        self._replace_partial_variables()
 
         copy_assets(self.assets_path, self.project_assets_path)
 
         if self.include_gulp:
             add_gulpfile(self.project_root, PHP_GULP_ASSETS_PATH)
-            update_package_json(self.source_path.parent, self.project_root, self.project_name)
+            add_plugins_file(self.source_path, self.project_root)
+            update_package_json(self.source_path, self.project_root, self.project_name)
 
         Messenger.project_end(self.project_name, str(self.project_root))
 
     def _convert(self):
+
         count = 0
 
         # Iterate only destination files (*.php)
@@ -118,20 +120,21 @@ class PHPConverter:
                 try:
                     with open(dest_file, "w", encoding="utf-8") as f:
                         f.write(content)
-                    Messenger.replaced(dest_file)
+                    Messenger.converted(str(dest_file))
                     count += 1
                 except Exception as e:
                     Messenger.error(f"Failed to write {dest_file}: {e}")
             else:
                 Messenger.warning(f"File was skipped (no patterns matched): {dest_file}")
 
-        Messenger.success(f"Replaced includes in {count} files in '{self.project_src_path}'.")
+        Messenger.info(f"{count} files converted in {self.project_src_path}")
 
-    def _replace_template_variables(self):
+    def _replace_partial_variables(self):
         """
         Scans all created PHP files for template syntax like '@@variable'
         and replaces it with the equivalent PHP echo statement.
         """
+
         count = 0
         for file in self.project_partials_path.rglob(f"*{PHP_EXTENSION}"):
             if not file.is_file():
@@ -151,7 +154,8 @@ class PHPConverter:
             if content != original_content:
                 with open(file, "w", encoding="utf-8") as f:
                     f.write(content)
+                Messenger.updated(str(file))
                 count += 1
 
         if count > 0:
-            Messenger.success(f"Replaced template variables in {count} files.")
+            Messenger.info(f"{count} files updated in {self.project_partials_path}")

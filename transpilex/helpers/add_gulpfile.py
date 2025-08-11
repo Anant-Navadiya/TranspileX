@@ -179,4 +179,4 @@ exports.rtlBuild = series(
     with open(gulpfile_path, "w", encoding="utf-8") as f:
         f.write(gulpfile_template)
 
-    Messenger.success(f"Created gulpfile.js at: {gulpfile_path}")
+    Messenger.info(f"gulpfile.js is ready at: {gulpfile_path}")

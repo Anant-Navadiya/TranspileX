@@ -62,7 +62,6 @@ BLAZOR_ASSETS_FOLDER = 'wwwroot'
 BLAZOR_EXTENSION = '.razor'
 BLAZOR_GULP_ASSETS_PATH = './wwwroot'
 
-
 # Spring
 SPRING_PROJECT_CREATION_COMMAND = 'dotnet new webapp -n'
 SPRING_DESTINATION_FOLDER = 'spring'
