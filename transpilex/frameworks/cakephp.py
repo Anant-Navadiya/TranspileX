@@ -13,10 +13,10 @@ from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_p
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 from transpilex.helpers.move_files import move_files
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
 class CakePHPConverter:
@@ -41,15 +41,15 @@ class CakePHPConverter:
 
     def create_project(self):
 
-        Messenger.project_start(self.project_name)
+        Log.project_start(self.project_name)
 
         self.project_root.mkdir(parents=True, exist_ok=True)
 
         try:
             subprocess.run(f'{CAKEPHP_PROJECT_CREATION_COMMAND} {self.project_root}', shell=True, check=True)
-            Messenger.success(f"CakePHP project created")
+            Log.success(f"CakePHP project created successfully")
         except subprocess.CalledProcessError:
-            Messenger.error(f"CakePHP project creation failed")
+            Log.error(f"CakePHP project creation failed")
             return
 
         empty_folder_contents(self.project_pages_path)
@@ -78,7 +78,7 @@ class CakePHPConverter:
             add_plugins_file(self.source_path, self.project_root)
             update_package_json(self.source_path, self.project_root, self.project_name)
 
-        Messenger.project_end(self.project_name, str(self.project_root))
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self, directory: Path):
         count = 0
@@ -109,7 +109,7 @@ class CakePHPConverter:
                     view_name = Path(file_path).stem
                     return f'<?= $this->element("{view_name}", {php_array}) ?>'
                 except json.JSONDecodeError as e:
-                    Messenger.warning(f"[JSON Error] in file {file.name}: {e}")
+                    Log.warning(f"[JSON Error] in file {file.name}: {e}")
                     return match.group(0)
 
             # === Handle @@include without parameters ===
@@ -138,20 +138,20 @@ class CakePHPConverter:
 
             if content != original_content:
                 file.write_text(content, encoding="utf-8")
-                Messenger.converted(str(file))
+                Log.converted(str(file))
                 count += 1
 
-        Messenger.info(f"{count} files converted in {directory}")
+        Log.info(f"{count} files converted in {directory}")
 
     def _add_root_method_to_app_controller(self):
 
         if not self.project_pages_controller_path.exists():
-            Messenger.error(f"File not found: {self.project_pages_controller_path}")
+            Log.error(f"File not found: {self.project_pages_controller_path}")
             return
 
         content = self.project_pages_controller_path.read_text(encoding="utf-8")
         if 'public function root(' in content:
-            Messenger.warning("Method 'root' already exists in PagesController")
+            Log.warning("Method 'root' already exists in PagesController")
             return
 
         method_code = """
@@ -169,12 +169,12 @@ class CakePHPConverter:
     """
         updated = re.sub(r"^\}\s*$", method_code + "\n}", content, flags=re.MULTILINE)
         self.project_pages_controller_path.write_text(updated, encoding="utf-8")
-        Messenger.created("root method in AppController")
+        Log.created("root method in AppController")
 
     def _patch_routes(self):
 
         if not self.project_routes_path.exists():
-            Messenger.error(f"File not found: {self.project_routes_path}")
+            Log.error(f"File not found: {self.project_routes_path}")
             return
 
         content = self.project_routes_path.read_text(encoding="utf-8")
@@ -186,9 +186,9 @@ class CakePHPConverter:
 
         if original in content:
             self.project_routes_path.write_text(content.replace(original, replacement), encoding="utf-8")
-            Messenger.updated("routes.php with custom routing")
+            Log.updated("routes.php with custom routing")
         else:
-            Messenger.warning("Expected line not found. Skipping patch")
+            Log.warning("Expected line not found. Skipping patch")
 
     def _rename_hyphens_to_underscores(self, ignore_list=None):
         if ignore_list is None:
@@ -238,11 +238,11 @@ class CakePHPConverter:
             new_content = pattern.sub(r'<?= $\1 ?>', content)
             if new_content != content:
                 file.write_text(new_content, encoding="utf-8")
-                Messenger.updated(str(file))
+                Log.updated(str(file))
                 count += 1
 
         if count:
-            Messenger.info(f"{count} files updated in {self.project_element_path}")
+            Log.info(f"{count} files updated in {self.project_element_path}")
 
     def _replace_default_layout(self):
         layout_path = self.project_layout_path
@@ -253,4 +253,4 @@ class CakePHPConverter:
 """
 
         layout_path.write_text(new_content, encoding="utf-8")
-        Messenger.updated(str(layout_path))
+        Log.updated(str(layout_path))

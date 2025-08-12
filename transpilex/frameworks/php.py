@@ -6,9 +6,9 @@ from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 from transpilex.config.base import PHP_SRC_FOLDER, PHP_EXTENSION, PHP_ASSETS_FOLDER, PHP_GULP_ASSETS_PATH, \
     PHP_DESTINATION_FOLDER
@@ -35,7 +35,7 @@ class PHPConverter:
 
     def create_project(self):
 
-        Messenger.project_start(self.project_name)
+        Log.project_start(self.project_name)
 
         change_extension_and_copy(PHP_EXTENSION, self.source_path, self.project_src_path)
 
@@ -50,7 +50,7 @@ class PHPConverter:
             add_plugins_file(self.source_path, self.project_root)
             update_package_json(self.source_path, self.project_root, self.project_name)
 
-        Messenger.project_end(self.project_name, str(self.project_root))
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self):
 
@@ -74,7 +74,7 @@ class PHPConverter:
             if "@@include" not in content and ".html" not in content:
                 continue
 
-            # --- helpers ---
+
             def to_php_path(path: str) -> str:
                 return path[:-5] + PHP_EXTENSION if path.endswith(".html") else path + PHP_EXTENSION
 
@@ -82,6 +82,19 @@ class PHPConverter:
             def include_with_params(match):
                 path = match.group(1).strip()
                 json_str = match.group(2)
+
+                # finds any sequence of whitespace (newlines, tabs, spaces)
+                # inside a string literal and replaces it with a single space.
+                def collapse_whitespace_in_strings(m):
+                    quote_char = m.group(1)
+                    string_content = m.group(2)
+                    # Replace any sequence of 1+ whitespace chars with a single space
+                    cleaned_content = re.sub(r'\s+', ' ', string_content).strip()
+                    return quote_char + cleaned_content + quote_char
+
+                # This regex correctly finds string literals, handling escaped quotes.
+                string_literal_regex = r'''(["'])((?:(?!\1|\\).|\\.)*)\1'''
+                json_str = re.sub(string_literal_regex, collapse_whitespace_in_strings, json_str, flags=re.DOTALL)
 
                 fixed_json_str = re.sub(r",\s*(?=[}\]])", "", json_str)
                 fixed_json_str = re.sub(r"'([^']*)'", r'"\1"', fixed_json_str)
@@ -92,7 +105,7 @@ class PHPConverter:
                     php_path = to_php_path(path)
                     return f"<?php {php_vars}include('{php_path}'); ?>"
                 except json.JSONDecodeError as e:
-                    Messenger.warning(f"[JSON Error] in file {dest_file.name}: {e}")
+                    Log.warning(f"[JSON Error] in file {dest_file.name}: {e}")
                     return match.group(0)
 
             # Replace includes WITHOUT parameters (allow missing .html)
@@ -120,14 +133,14 @@ class PHPConverter:
                 try:
                     with open(dest_file, "w", encoding="utf-8") as f:
                         f.write(content)
-                    Messenger.converted(str(dest_file))
+                    Log.converted(str(dest_file))
                     count += 1
                 except Exception as e:
-                    Messenger.error(f"Failed to write {dest_file}: {e}")
+                    Log.error(f"Failed to write {dest_file}: {e}")
             else:
-                Messenger.warning(f"File was skipped (no patterns matched): {dest_file}")
+                Log.warning(f"File was skipped (no patterns matched): {dest_file}")
 
-        Messenger.info(f"{count} files converted in {self.project_src_path}")
+        Log.info(f"{count} files converted in {self.project_src_path}")
 
     def _replace_partial_variables(self):
         """
@@ -154,8 +167,8 @@ class PHPConverter:
             if content != original_content:
                 with open(file, "w", encoding="utf-8") as f:
                     f.write(content)
-                Messenger.updated(str(file))
+                Log.updated(str(file))
                 count += 1
 
         if count > 0:
-            Messenger.info(f"{count} files updated in {self.project_partials_path}")
+            Log.info(f"{count} files updated in {self.project_partials_path}")

@@ -1,27 +1,220 @@
 import re
-import json
+import ast
 import subprocess
+import html
 from pathlib import Path
 from bs4 import BeautifulSoup
 
+from transpilex.config.base import SYMFONY_DESTINATION_FOLDER, SYMFONY_INSTALLATION_VERSION, SYMFONY_ASSETS_FOLDER, \
+    SYMFONY_ASSETS_PRESERVE, SYMFONY_EXTENSION, SYMFONY_GULP_ASSETS_PATH
 from transpilex.helpers import copy_assets, change_extension_and_copy
+from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
-def add_home_controller_file(project_root):
+class SymfonyConverter:
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
+        self.project_name = project_name
+        self.source_path = Path(source_path)
+        self.destination_path = Path(SYMFONY_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
+        self.include_gulp = include_gulp
+
+        self.project_root = self.destination_path / project_name
+        self.project_assets_path = self.project_root / SYMFONY_ASSETS_FOLDER
+        self.project_pages_path = Path(self.project_root / "templates")
+        self.project_partials_path = Path(self.project_pages_path / "partials")
+        self.project_controller_path = Path(self.project_root / "src" / "Controller")
+        self.project_home_controller_path = Path(self.project_controller_path / "HomeController.php")
+
+        self.create_project()
+
+    def create_project(self):
+
+        Log.project_start(self.project_name)
+
+        self.project_root.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            subprocess.run(f'symfony new {self.project_root} --version="{SYMFONY_INSTALLATION_VERSION}" --webapp',
+                           shell=True,
+                           check=True)
+            Log.success(f"Symfony project created successfully")
+
+        except subprocess.CalledProcessError:
+            Log.error(f"Symfony project creation failed")
+            return
+
+        change_extension_and_copy(SYMFONY_EXTENSION, self.source_path, self.project_pages_path)
+
+        self._convert(self.project_pages_path)
+
+        self._replace_partial_variables()
+
+        self._add_home_controller()
+
+        copy_assets(self.assets_path, self.project_assets_path, preserve=SYMFONY_ASSETS_PRESERVE)
+
+        if self.include_gulp:
+            add_gulpfile(self.project_root, SYMFONY_GULP_ASSETS_PATH)
+            add_plugins_file(self.source_path, self.project_root)
+            update_package_json(self.source_path, self.project_root, self.project_name)
+
+        Log.project_end(self.project_name, str(self.project_root))
+
+    def _process_includes(self, content: str):
+        twig_title_block = ""
+
+        def replacer_with_params(match):
+            nonlocal twig_title_block
+
+            file_partial_path = match.group(1).strip()
+            params_str = match.group(2).strip()
+
+            # Collapse whitespace INSIDE quoted strings only (so multi-line values are safe)
+            def _collapse_in_strings(m):
+                q = m.group(1)
+                inner = m.group(2)
+                inner = re.sub(r'\s+', ' ', inner).strip()
+                return q + inner + q
+
+            string_lit_rx = r'''(["'])((?:(?!\1|\\).|\\.)*)\1'''
+            params_str = re.sub(string_lit_rx, _collapse_in_strings, params_str, flags=re.DOTALL)
+
+            # Remove trailing commas like {"a":"b",}
+            params_str_cleaned = re.sub(r',\s*(?=[}\]])', '', params_str)
+
+            # Try a tolerant parse
+            try:
+                params_dict = ast.literal_eval(params_str_cleaned)
+            except (ValueError, SyntaxError) as e:
+                Log.error(f"Could not parse params for '{file_partial_path}'. Error: {e}")
+                return match.group(0)
+
+            # Title/meta includes: lift title into a Twig block and drop the include
+            name_lower = Path(file_partial_path).name.lower()
+            if name_lower in ("title-meta.html", "app-meta-title.html"):
+                title = (params_dict.get("title") or params_dict.get("pageTitle") or "").strip()
+                if title:
+                    title = html.unescape(title)
+                    twig_title_block = f"{{% block title %}}{title}{{% endblock %}}"
+                return ""
+
+            # Build Twig params: key: value (strings single-quoted, booleans true/false)
+            def _twig_value(v):
+                if isinstance(v, str):
+                    s = html.unescape(v).replace("'", "\\'")
+                    return f"'{s}'"
+                if isinstance(v, bool):
+                    return "true" if v else "false"
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    return str(v)
+                # fallback stringify
+                s = str(v).replace("'", "\\'")
+                return f"'{s}'"
+
+            twig_params = ", ".join(f"{k}: {_twig_value(v)}" for k, v in params_dict.items())
+
+            # Keep original filename (e.g. page-title.html) and append .twig
+            view_name = Path(file_partial_path).name + ".twig"
+            return f"{{{{ include('partials/{view_name}', {{ {twig_params} }}) }}}}"
+
+        def replacer_no_params(match):
+            file_partial_path = match.group(1).strip()
+            # Drop footer includes entirely
+            name_lower = Path(file_partial_path).name.lower()
+            if name_lower in ("footer.html", "footer-scripts.html"):
+                return ""
+            view_name = Path(file_partial_path).name + ".twig"
+            return f"{{{{ include('partials/{view_name}') }}}}"
+
+        include_with_params_regex = r"""@@include\s*\(\s*['"]([^"']+)['"]\s*,\s*(\{[\s\S]*?\})\s*\)"""
+        processed_content = re.sub(include_with_params_regex, replacer_with_params, content, flags=re.DOTALL)
+
+        include_no_params_regex = r"""@@include\s*\(\s*['"]([^"']+)['"]\s*\)"""
+        processed_content = re.sub(include_no_params_regex, replacer_no_params, processed_content)
+
+        return processed_content, twig_title_block.strip()
+
+    def _convert(self, dist_folder):
+        dist_path = Path(dist_folder)
+        count = 0
+
+        for file in dist_path.rglob("*.html.twig"):
+            if not file.is_file():
+                continue
+
+            content = file.read_text(encoding="utf-8")
+
+            is_partial = 'partials' in str(file.relative_to(dist_path))
+
+            if is_partial:
+                # For partials, just process includes and clean paths. No layout.
+                processed_content, _ = self._process_includes(content)  # Discard title block
+                processed_content = clean_relative_asset_paths(processed_content)
+                processed_content = replace_html_links(processed_content, '')
+
+                file.write_text(processed_content.strip() + "\n", encoding="utf-8")
+                Log.converted(f"{str(file.relative_to(self.project_pages_path))} (processed as partial)")
+                count += 1
+
+            else:
+                # For main pages, perform the full conversion with the layout.
+                processed_content, twig_title_block = self._process_includes(content)
+                soup = BeautifulSoup(processed_content, 'html.parser')
+
+                link_tags = soup.find_all("link", rel="style")
+                styles_html = "\n".join(f"    {tag.extract()}" for tag in link_tags)
+
+                script_tags = soup.find_all("script")
+                scripts_html = "\n".join(f"    {tag.extract()}" for tag in script_tags)
+
+                content_div = soup.find(attrs={"data-content": True})
+                if content_div:
+                    content_section = content_div.decode_contents().strip()
+                else:
+                    body_tag = soup.find("body")
+                    content_section = body_tag.decode_contents().strip() if body_tag else soup.decode_contents().strip()
+
+                twig_output = f"""{{% extends 'layouts/vertical.html.twig' %}}
+
+{twig_title_block}
+
+{{% block styles %}}
+{styles_html}
+{{% endblock %}}
+
+{{% block content %}}
+{content_section}
+{{% endblock %}}
+
+{{% block scripts %}}
+{scripts_html}
+{{% endblock %}}
     """
-    Creates src/Controller/HomeController.php with the specified content for Symfony.
-    """
-    controller_dir = project_root / "src" / "Controller"
-    controller_file_path = controller_dir / "HomeController.php"
+                twig_output = clean_relative_asset_paths(twig_output)
+                twig_output = replace_html_links(twig_output, '')
 
-    # Ensure the controller directory exists
-    controller_dir.mkdir(parents=True, exist_ok=True)
+                file.write_text(twig_output.strip() + "\n", encoding="utf-8")
 
-    controller_content = r"""<?php
+            Log.converted(str(file))
+            count += 1
+
+        Log.info(f"{count} files converted in {self.project_pages_path}")
+
+    def _add_home_controller(self):
+        """
+        Creates src/Controller/HomeController.php with the specified content for Symfony.
+        """
+
+        # Ensure the controller directory exists
+        self.project_controller_path.mkdir(parents=True, exist_ok=True)
+
+        controller_content = r"""<?php
 
 namespace App\Controller;
 
@@ -58,188 +251,31 @@ class HomeController extends AbstractController
         throw $this->createNotFoundException();
     }
 }
-"""
-    try:
-        with open(controller_file_path, "w", encoding="utf-8") as f:
-            f.write(controller_content.strip() + "\n")
-        print(f"✅ Created controller file: {controller_file_path.relative_to(project_root)}")
-    except Exception as e:
-        print(f"❌ Error writing to {controller_file_path}: {e}")
-
-
-def extract_json_from_include(include_string):
     """
-    Extracts JSON-like dictionary string from an include statement.
-    Example: "{'title': 'Dashboard', 'subtitle': 'Welcome'}"
-    """
-    match = re.search(r'{(\s*[\'"].*?:\s*[\'"].*?[\'"]\s*(?:,\s*[\'"].*?:\s*[\'"].*?[\'"])*\s*)}', include_string)
-    if match:
-        json_str = match.group(1).replace("'", "\"") # Replace single quotes with double quotes for valid JSON
         try:
-            # This is a simplified parsing. For complex cases, consider a proper JSON parser.
-            # A safer way would be to use ast.literal_eval if the input is guaranteed safe.
-            # For this example, we'll manually parse a simple key-value structure.
-            data = {}
-            pairs = json_str.split(',')
-            for pair in pairs:
-                if ':' in pair:
-                    key, value = pair.split(':', 1)
-                    key = key.strip().strip('"')
-                    value = value.strip().strip('"')
-                    data[key] = value
-            return data
+            with open(self.project_home_controller_path, "w", encoding="utf-8") as f:
+                f.write(controller_content.strip() + "\n")
+            Log.created(f"controller file at {self.project_home_controller_path}")
         except Exception as e:
-            print(f"Error parsing JSON from include: {e}")
-            return {}
-    return {}
+            Log.error(f"Failed to create HomeController.php: {e}")
 
+    def _replace_partial_variables(self):
+        count = 0
+        pattern = re.compile(r'@@(?!if\b|include\b)([A-Za-z_]\w*)\b')
 
-def convert_to_symfony_twig(dist_folder):
-    dist_path = Path(dist_folder)
-    count = 0
+        for file in self.project_partials_path.rglob(f"*{SYMFONY_EXTENSION}"):
+            if not file.is_file():
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
 
-    for file in dist_path.rglob("*.html.twig"):  # Target .html.twig files
-        if file.is_file():
-            print(f"Processing for Symfony Twig: {file.name}")
-            with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
+            new_content = pattern.sub(r'{{ (\1) ? \1 : "" }}', content)
+            if new_content != content:
+                file.write_text(new_content, encoding="utf-8")
+                Log.updated(str(file))
+                count += 1
 
-            soup = BeautifulSoup(content, 'html.parser')
-
-            # Extract title from title-meta include (from original HTML)
-            # Assuming @@include('./partials/title-meta.html', {'title': '...' }) syntax
-            title_meta_match = re.search(r'@@include\(["\']\.\/partials\/title-meta\.html["\']\s*,\s*({.*?})\)',
-                                         content, re.DOTALL) # Added re.DOTALL
-            twig_title_block = ""
-            if title_meta_match:
-                meta_data = extract_json_from_include(title_meta_match.group())
-                layout_title = meta_data.get("title", "").strip()
-                if layout_title:
-                    twig_title_block = f"{{% block title %}}{layout_title}{{% endblock %}}"
-
-            # Extract <link> tags for stylesheets
-            link_tags = soup.find_all("link", rel="stylesheet")  # Only get stylesheets
-            stylesheets_html = "\n".join(f"    {str(link)}" for link in link_tags)
-
-            # Extract <script> tags
-            script_tags = soup.find_all("script")
-            scripts_html = "\n".join(f"    {str(tag)}" for tag in script_tags)
-
-            # --- MODIFIED LOGIC START ---
-            inner_html = ""
-            content_source = ""
-
-            content_div = soup.find(attrs={"data-content": True})
-            if content_div:
-                inner_html = content_div.decode_contents()
-                content_source = "data-content"
-            else:
-                body_tag = soup.find("body")
-                if body_tag:
-                    inner_html = body_tag.decode_contents()
-                    content_source = "body"
-                else:
-                    # If neither data-content nor body is found, use the entire file content
-                    inner_html = content
-                    content_source = "entire file (no data-content or body found)"
-
-            print(f"Content source for '{file.name}': {content_source}")
-            # --- MODIFIED LOGIC END ---
-
-            # Replace page-title include (from original HTML) with Twig include
-            # @@include('./partials/page-title.html', {'title': '...', 'subtitle': '...'})
-            page_title_match = re.search(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\']\s*,\s*({.*?})\s*\)',
-                                         inner_html, re.DOTALL) # Added re.DOTALL
-            if page_title_match:
-                page_data = extract_json_from_include(page_title_match.group())
-
-                # Dynamically construct the parameters for the Twig include
-                twig_params = []
-                for key, value in page_data.items():
-                    # Ensure values are properly quoted for Twig string literals
-                    twig_params.append(f"{key}: '{value}'")
-
-                twig_page_title_include = f"{{{{ include('partials/page-title.html.twig', {{{', '.join(twig_params)}}}) }}}}"
-                inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\']\s*,\s*{.*?}\s*\)',
-                                    twig_page_title_include, inner_html, flags=re.DOTALL) # Added re.DOTALL
-            else:
-                # Clean up any leftover partials include if no match for page-title
-                inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/page-title\.html["\'].*?\)', '', inner_html, flags=re.DOTALL) # Added re.DOTALL
-
-            # Remove @@include('./partials/footer.html') from inner_html
-            inner_html = re.sub(r'@@include\(\s*["\']\.\/partials\/footer\.html["\'].*?\)', '', inner_html, flags=re.DOTALL) # Added re.DOTALL
-
-            content_section = inner_html.strip()
-
-            # Final Twig structure
-            twig_output = f"""{{% extends 'layouts/vertical.html.twig' %}}
-
-{twig_title_block}
-
-{{% block stylesheets %}}
-{stylesheets_html}
-{{% endblock %}}
-
-{{% block content %}}
-{content_section}
-{{% endblock %}}
-
-{{% block scripts %}}
-{scripts_html}
-{{% endblock %}}
-"""
-            # Clean asset paths
-            twig_output = clean_relative_asset_paths(twig_output)
-
-            # replace .html
-            twig_output = replace_html_links(twig_output, '') # Apply to twig_output, not original content
-
-            with open(file, "w", encoding="utf-8") as f:
-                f.write(twig_output.strip() + "\n")
-
-            print(f"✅ Converted: {file.relative_to(dist_path)}")
-            count += 1
-
-    print(f"\n✨ {count} Twig files converted successfully.")
-
-
-def create_symfony_project(project_name, source_folder, assets_folder):
-
-    project_root = Path("symfony") / project_name
-    project_root.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create the Symfony project using Composer
-    print(f"📦 Creating Symfony project '{project_root}'...")
-    try:
-        subprocess.run(
-            f'symfony new {project_root} --version="7.3.x-dev" --webapp',
-            shell=True,
-            check=True
-        )
-        print("✅ Symfony project created successfully.")
-
-    except subprocess.CalledProcessError:
-        print("❌ Error: Could not create Symfony project. Make sure Composer and PHP are set up correctly.")
-        return
-
-    # Copy the source file and change extensions
-    pages_path = project_root / "templates"
-    pages_path.mkdir(parents=True, exist_ok=True)
-
-    change_extension_and_copy('html.twig', source_folder, pages_path)
-
-    convert_to_symfony_twig(pages_path)
-
-    add_home_controller_file(project_root)
-
-    # Copy assets to webroot while preserving required files
-    assets_path = project_root / "public"
-    copy_assets(assets_folder, assets_path, preserve=["index.php"])
-
-    # Create gulpfile.js
-    add_gulpfile(project_root, './public')
-
-    # Update dependencies
-    # update_package_json(source_folder, project_root, project_name)
-
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")
+        if count:
+            Log.info(f"{count} files updated in {self.project_partials_path}")

@@ -10,7 +10,7 @@ from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.restructure_files import apply_casing
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
 def extract_page_title(content: str):

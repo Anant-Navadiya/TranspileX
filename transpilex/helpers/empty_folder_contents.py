@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 
 
@@ -29,4 +29,4 @@ def empty_folder_contents(folder_path: Path, skip=None):
             elif item.is_dir():
                 shutil.rmtree(item)
         except Exception as e:
-            Messenger.error(f"Error removing {item}: {e}")
+            Log.error(f"Error removing {item}: {e}")

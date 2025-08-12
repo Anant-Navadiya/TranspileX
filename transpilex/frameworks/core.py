@@ -10,7 +10,7 @@ from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
 def to_pascal_case(s: str) -> str:

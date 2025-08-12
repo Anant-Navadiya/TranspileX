@@ -9,7 +9,7 @@ import shutil
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, ROR_DESTINATION_FOLDER, ROR_ASSETS_FOLDER, ROR_EXTENSION
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 from transpilex.helpers.restructure_files import restructure_files
 
 
@@ -31,15 +31,15 @@ class RoRConverter:
 
     def create_project(self):
 
-        Messenger.info(f"Creating RoR project at: '{self.project_root}'...")
+        Log.info(f"Creating RoR project at: '{self.project_root}'...")
 
         self.project_root.mkdir(parents=True, exist_ok=True)
 
         try:
             subprocess.run(f'rails new {self.project_root}', shell=True, check=True)
-            Messenger.success(f"RoR project created.")
+            Log.success(f"RoR project created.")
         except subprocess.CalledProcessError:
-            Messenger.error(f"RoR project creation failed.")
+            Log.error(f"RoR project creation failed.")
             return
 
         empty_folder_contents(self.project_views_path)
@@ -53,7 +53,7 @@ class RoRConverter:
 
         # update_package_json(self.source_path, self.project_root, self.project_name)
 
-        Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
     def _convert(self):
         """
@@ -177,10 +177,10 @@ class RoRConverter:
             with open(file, "w", encoding="utf-8") as f:
                 f.write(erb_output)
 
-            Messenger.success(f"Converted Rails view: {file.relative_to(self.project_views_path)}")
+            Log.success(f"Converted Rails view: {file.relative_to(self.project_views_path)}")
             count += 1
 
-        Messenger.success(f"\n{count} Rails view files converted successfully.")
+        Log.success(f"\n{count} Rails view files converted successfully.")
 
     def _extract_all_partials_with_params(self, content):
         """
@@ -276,7 +276,7 @@ class RoRConverter:
             json_str_cleaned = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str_cleaned)
             return json.loads(json_str_cleaned)
         except json.JSONDecodeError:
-            Messenger.warning(f"Failed to parse as JSON: {params_str[:50]}...")
+            Log.warning(f"Failed to parse as JSON: {params_str[:50]}...")
             pass
 
         params_dict = {}
@@ -313,7 +313,7 @@ class RoRConverter:
             params_dict[key] = value
 
         if not params_dict:
-            Messenger.warning(f"Could not extract parameters from: {params_str[:50]}...")
+            Log.warning(f"Could not extract parameters from: {params_str[:50]}...")
         return params_dict
 
     def _extract_title_from_soup_or_data(self, soup):
@@ -379,7 +379,7 @@ class RoRConverter:
                 erb_tag
             )
 
-        Messenger.info(f"Image ERB replacement done, ERB tags present? {'<%=' in html_with_placeholders}")
+        Log.info(f"Image ERB replacement done, ERB tags present? {'<%=' in html_with_placeholders}")
 
         return html_with_placeholders
 
@@ -453,10 +453,10 @@ class RoRConverter:
                 controller_file_path = os.path.join(self.project_controllers_path, controller_file_name)
                 self._create_controller_file(controller_file_path, controller_name, actions)
                 controllers_actions[controller_name] = actions
-                Messenger.success(f"Created: {controller_file_path}")
+                Log.success(f"Created: {controller_file_path}")
 
         self._create_routes(controllers_actions)
-        Messenger.success("Controller and routes generation completed.")
+        Log.success("Controller and routes generation completed.")
 
     def _create_routes(self, controllers_actions):
         """
@@ -484,4 +484,4 @@ class RoRConverter:
             for line in route_lines:
                 f.write(line + "\n")
 
-        Messenger.success(f"Routes appended to {self.project_routes_path}")
+        Log.success(f"Routes appended to {self.project_routes_path}")

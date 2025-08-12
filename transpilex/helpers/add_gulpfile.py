@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 
 def add_gulpfile(project_root: Path, asset_path: str):
@@ -179,4 +179,4 @@ exports.rtlBuild = series(
     with open(gulpfile_path, "w", encoding="utf-8") as f:
         f.write(gulpfile_template)
 
-    Messenger.info(f"gulpfile.js is ready at: {gulpfile_path}")
+    Log.info(f"gulpfile.js is ready at: {gulpfile_path}")

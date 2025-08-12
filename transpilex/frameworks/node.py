@@ -6,7 +6,7 @@ from pathlib import Path
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
 def extract_meta(content):

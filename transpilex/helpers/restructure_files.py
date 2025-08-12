@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 
 def apply_casing(name, case_type):
@@ -93,7 +93,7 @@ def restructure_files(source_path: Path, destination_path: Path, new_extension=N
         target_file = target_dir / f"{processed_file_name}{final_ext}"
 
         shutil.copy(file, target_file)
-        Messenger.processed(f"{file.name} → {target_file.relative_to(destination_path)}")
+        Log.processed(f"{file.name} → {target_file.relative_to(destination_path)}")
         copied_count += 1
 
-    Messenger.info(f"{copied_count} files processed and saved in {destination_path} with '{new_extension}' extension.")
+    Log.info(f"{copied_count} files processed and saved in {destination_path} with '{new_extension}' extension.")

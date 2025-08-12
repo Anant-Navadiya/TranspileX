@@ -21,11 +21,13 @@ PHP_GULP_ASSETS_PATH = './src/assets'
 # Laravel
 LARAVEL_INSTALLER_COMMAND = 'composer global require laravel/installer'
 LARAVEL_PROJECT_CREATION_COMMAND = 'laravel new'
+LARAVEL_PROJECT_CREATION_COMMAND_AUTH = ['git', 'clone', 'https://github.com/transpilex/laravel-with-auth.git', '.']
 LARAVEL_DESTINATION_FOLDER = 'laravel'
 LARAVEL_EXTENSION = '.blade.php'
 LARAVEL_ASSETS_FOLDER = 'resources'
 LARAVEL_RESOURCES_PRESERVE = ["views"]
 LARAVEL_GULP_ASSETS_PATH = './public'
+LARAVEL_AUTH_FOLDER = 'default-auth'
 
 # CakePHP
 CAKEPHP_PROJECT_CREATION_COMMAND = 'composer create-project --prefer-dist cakephp/app:~5.0'
@@ -42,6 +44,14 @@ CODEIGNITER_EXTENSION = '.php'
 CODEIGNITER_ASSETS_FOLDER = 'public'
 CODEIGNITER_ASSETS_PRESERVE = ["index.php", ".htaccess", "manifest.json", "robots.txt"]
 CODEIGNITER_GULP_ASSETS_PATH = './public'
+
+# Symfony
+SYMFONY_INSTALLATION_VERSION = "7.3.x-dev"
+SYMFONY_DESTINATION_FOLDER = 'symfony'
+SYMFONY_EXTENSION = '.html.twig'
+SYMFONY_ASSETS_FOLDER = 'public'
+SYMFONY_ASSETS_PRESERVE = ["index.php"]
+SYMFONY_GULP_ASSETS_PATH = './public'
 
 # Ror
 ROR_DESTINATION_FOLDER = 'ror'

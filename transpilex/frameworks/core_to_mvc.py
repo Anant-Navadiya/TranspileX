@@ -7,8 +7,8 @@ from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, MVC_DESTINATION_FOL
     MVC_PROJECT_CREATION_COMMAND, MVC_GULP_ASSETS_PATH
 from transpilex.helpers import copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
-from transpilex.helpers.messages import Messenger
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.logs import Log
+from transpilex.helpers.package_json import update_package_json
 
 KEYWORDS = ("@page", "@model")
 
@@ -34,12 +34,12 @@ class CoreToMvcConverter:
     def create_project(self):
 
         if self.core_project_path.exists():
-            Messenger.info(f"Core project found at: '{self.core_project_path}'")
+            Log.info(f"Core project found at: '{self.core_project_path}'")
         else:
-            Messenger.error(f"Core project not found at: '{self.core_project_path}'")
+            Log.error(f"Core project not found at: '{self.core_project_path}'")
             return
 
-        Messenger.info(f"Creating MVC project at: '{self.project_root}'...")
+        Log.info(f"Creating MVC project at: '{self.project_root}'...")
 
         self.project_root.mkdir(parents=True, exist_ok=True)
 
@@ -50,7 +50,7 @@ class CoreToMvcConverter:
                 shell=True,
                 check=True
             )
-            Messenger.success(f"MVC project created successfully.")
+            Log.success(f"MVC project created successfully.")
 
             subprocess.run(
                 f'dotnet new sln -n {self.project_name}',
@@ -68,10 +68,10 @@ class CoreToMvcConverter:
                 check=True
             )
 
-            Messenger.success(f".sln file created successfully.")
+            Log.success(f".sln file created successfully.")
 
         except subprocess.CalledProcessError:
-            Messenger.error("Could not create MVC project.")
+            Log.error("Could not create MVC project.")
             return
 
         self.project_views_path.mkdir(parents=True, exist_ok=True)
@@ -86,7 +86,7 @@ class CoreToMvcConverter:
 
         # update_package_json(self.source_path, self.project_root, self.project_name)
 
-        Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
     def _convert(self):
         for root, _, files in os.walk(self.core_project_pages_path):

@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 import fnmatch
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 
 def change_extension_and_copy(
@@ -25,7 +25,7 @@ def change_extension_and_copy(
     """
 
     if not source_path.exists() or not source_path.is_dir():
-        Messenger.error(f"Source folder '{source_path}' does not exist or is not a directory.")
+        Log.error(f"Source folder '{source_path}' does not exist or is not a directory.")
         return
 
     if not new_extension.startswith('.'):
@@ -59,15 +59,15 @@ def change_extension_and_copy(
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(root_path / fname, destination)
 
-            Messenger.processed(f"{root_path / fname} → {destination}")
+            Log.processed(f"{root_path / fname} → {destination}")
             count += 1
 
-    Messenger.info(f"{count} files processed and saved in {destination_path} with '{new_extension}' extension.")
+    Log.info(f"{count} files processed and saved in {destination_path} with '{new_extension}' extension.")
 
 
 def change_extension(new_extension, src_path: Path, dist_path: Path):
     if not src_path.exists() or not src_path.is_dir():
-        Messenger.error(f"Source path '{src_path}' does not exist or is not a directory.")
+        Log.error(f"Source path '{src_path}' does not exist or is not a directory.")
         return
 
     if not new_extension.startswith('.'):
@@ -85,7 +85,7 @@ def change_extension(new_extension, src_path: Path, dist_path: Path):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(file, destination)
 
-            Messenger.success(f"{file} → {destination}")
+            Log.success(f"{file} → {destination}")
             count += 1
 
-    Messenger.info(f"{count} files processed and saved in '{dist_path}' with '{new_extension}' extension.")
+    Log.info(f"{count} files processed and saved in '{dist_path}' with '{new_extension}' extension.")

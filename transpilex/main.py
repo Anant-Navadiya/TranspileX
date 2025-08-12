@@ -14,8 +14,8 @@ from transpilex.frameworks.node import create_node_project
 from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.ror import RoRConverter
 from transpilex.frameworks.spring import SpringConverter
-from transpilex.frameworks.symfony import create_symfony_project
-from transpilex.helpers.messages import Messenger
+from transpilex.frameworks.symfony import SymfonyConverter
+from transpilex.helpers.logs import Log
 
 from transpilex.helpers.system_check import system_check
 
@@ -37,7 +37,7 @@ def main():
 
     # helper for subparser common options that should be AFTER framework
     def add_common_framework_args(sp):
-        sp.add_argument("--src", default=SOURCE_PATH)
+        sp.add_argument("--source", default=SOURCE_PATH)
         sp.add_argument("--assets", default=ASSETS_PATH)
 
     # php
@@ -55,11 +55,15 @@ def main():
     add_common_framework_args(codeigniter_p)
     codeigniter_p.add_argument("--no-gulp", action='store_true')
 
+    # symfony
+    symfony_p = subparsers.add_parser("symfony", help="Convert to Symfony")
+    add_common_framework_args(symfony_p)
+    symfony_p.add_argument("--no-gulp", action='store_true')
+
     # laravel
     laravel_p = subparsers.add_parser("laravel", help="Convert to Laravel")
     add_common_framework_args(laravel_p)
-    # laravel_p.add_argument("--laravel-breeze", action='store_true')
-    # laravel_p.add_argument("--laravel-jetstream", action='store_true')
+    laravel_p.add_argument("--auth", action='store_true')
 
     # django
     django_p = subparsers.add_parser("django", help="Convert to Django")
@@ -83,7 +87,7 @@ def main():
 
     handler_args = {
         "project_name": args.project,
-        "source_path": args.src,
+        "source_path": args.source,
         "assets_path": args.assets
     }
 
@@ -107,7 +111,7 @@ def main():
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
         'spring': make_class_handler(SpringConverter),
-        'symfony': make_func_handler(create_symfony_project),
+        'symfony': make_class_handler(SymfonyConverter),
         'node': make_func_handler(create_node_project),
         'django': make_func_handler(create_django_project),
         'flask': make_func_handler(create_flask_project),
@@ -117,7 +121,7 @@ def main():
 
     handler = handlers.get(args.framework)
     if not handler:
-        Messenger.error(f"Framework '{args.framework}' is not implemented yet.")
+        Log.error(f"Framework '{args.framework}' is not implemented yet.")
         return
 
     handler()
@@ -128,12 +132,11 @@ def framework_specific_kwargs(args):
     Extract only the flags relevant to the chosen subparser.
     Keep it explicit to avoid leaking unrelated args.
     """
-    if args.framework == "php" or args.framework == "cakephp" or args.framework == "codeigniter":
+    if args.framework == "php" or args.framework == "cakephp" or args.framework == "codeigniter" or args.framework == "symfony":
         return {"include_gulp": not args.no_gulp}
     if args.framework == "laravel":
         return {
-            # "use_breeze": args.laravel_breeze,
-            # "use_jetstream": args.laravel_jetstream,
+            "auth": args.auth,
         }
     if args.framework == "django":
         return {

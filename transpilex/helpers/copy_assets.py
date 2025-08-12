@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 
 def copy_assets(source_path: Path, destination_path: Path, preserve=None, exclude=None):
@@ -12,7 +12,7 @@ def copy_assets(source_path: Path, destination_path: Path, preserve=None, exclud
     source = Path(source_path)
 
     if not source.exists():
-        Messenger.warning(f"Assets source not found at {source}")
+        Log.warning(f"Assets source not found at {source}")
         return
 
     destination = Path(destination_path)
@@ -23,22 +23,22 @@ def copy_assets(source_path: Path, destination_path: Path, preserve=None, exclud
     destination.mkdir(parents=True, exist_ok=True)
 
     # Clean destination except preserved items
-    Messenger.info(f"Cleaning {destination}{f' preserving: {preserve}' if preserve else ''}")
+    Log.info(f"Cleaning {destination}{f' preserving: {preserve}' if preserve else ''}")
     for item in destination.iterdir():
         if item.name in preserve:
-            Messenger.preserved(str(item))
+            Log.preserved(str(item))
             continue
         if item.is_dir():
             shutil.rmtree(item)
-            Messenger.removed(str(item))
+            Log.removed(str(item))
         else:
             item.unlink()
-            Messenger.removed(str(item))
+            Log.removed(str(item))
 
     # Copy new assets, skipping excluded names
     for item in source.iterdir():
         if item.name in exclude:
-            Messenger.info(f"Skipping (excluded): {item.name}")
+            Log.info(f"Skipping (excluded): {item.name}")
             continue
 
         target = destination / item.name
@@ -46,4 +46,4 @@ def copy_assets(source_path: Path, destination_path: Path, preserve=None, exclud
             shutil.copytree(item, target)
         else:
             shutil.copy2(item, target)
-        Messenger.copied(f"{item} → {target}")
+        Log.copied(f"{item} → {target}")

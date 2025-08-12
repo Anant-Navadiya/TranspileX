@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 from typing import Union, List, Set, Optional
 
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 
 def copy_items(
         source_paths: Union[str, Path, List[Union[str, Path]]],
@@ -43,27 +43,27 @@ def copy_items(
         destination.mkdir(parents=True, exist_ok=True)
         if clean_destination:
             preserve_set: Set[str] = set(preserve or [])
-            Messenger.info(
+            Log.info(
                 f"Cleaning '{destination}'"
                 f"{f' while preserving: {preserve_set}' if preserve_set else ''}"
             )
             for item in destination.iterdir():
                 if item.name in preserve_set:
-                    Messenger.preserved(item.name)
+                    Log.preserved(item.name)
                     continue
                 try:
                     if item.is_dir():
                         shutil.rmtree(item)
-                        Messenger.removed(item.name)
+                        Log.removed(item.name)
                     else:
                         item.unlink()
-                        Messenger.removed(item.name)
+                        Log.removed(item.name)
                 except OSError as e:
-                    Messenger.error(f"Error removing {item}: {e}")
+                    Log.error(f"Error removing {item}: {e}")
 
     for source in sources:
         if not source.exists():
-            Messenger.warning(f"Source not found and was skipped: {source}")
+            Log.warning(f"Source not found and was skipped: {source}")
             continue
 
         # If destination is a directory, the target is inside it.
@@ -77,9 +77,9 @@ def copy_items(
         try:
             if source.is_dir():
                 shutil.copytree(source, target, dirs_exist_ok=True)
-                Messenger.copied(f"{source.name} -> {target}")
+                Log.copied(f"{source.name} -> {target}")
             elif source.is_file():
                 shutil.copy2(source, target)
-                Messenger.copied(f"{source.name} -> {target}")
+                Log.copied(f"{source.name} -> {target}")
         except Exception as e:
-            Messenger.error(f"Failed to copy {source.name} to {target}: {e}")
+            Log.error(f"Failed to copy {source.name} to {target}: {e}")

@@ -12,7 +12,7 @@ from transpilex.helpers.change_extension import change_extension
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.add_gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing
 
@@ -35,7 +35,7 @@ class BlazorConverter:
         self.create_project()
 
     def create_project(self):
-        Messenger.info(f"Creating Blazor project at: '{self.project_root}'...")
+        Log.info(f"Creating Blazor project at: '{self.project_root}'...")
 
         self.project_root.parent.mkdir(parents=True, exist_ok=True)
 
@@ -43,7 +43,7 @@ class BlazorConverter:
             subprocess.run(f'{BLAZOR_PROJECT_CREATION_COMMAND} {self.project_name}', shell=True, check=True,
                            cwd=self.project_root.parent)
 
-            Messenger.success(f"Blazor project created.")
+            Log.success(f"Blazor project created.")
 
             subprocess.run(
                 f'dotnet new sln -n {self.project_name}',
@@ -61,10 +61,10 @@ class BlazorConverter:
                 check=True
             )
 
-            Messenger.success(".sln file created successfully.")
+            Log.success(".sln file created successfully.")
 
         except subprocess.CalledProcessError:
-            Messenger.error(f"Blazor project creation failed.")
+            Log.error(f"Blazor project creation failed.")
             return
 
         empty_folder_contents(self.project_pages_path)
@@ -79,7 +79,7 @@ class BlazorConverter:
 
         add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH)
 
-        Messenger.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
 
     def _convert(self, skip_dirs=["partials"], casing="pascal"):
 

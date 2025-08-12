@@ -11,9 +11,9 @@ from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
-from transpilex.helpers.messages import Messenger
+from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.update_package_json import update_package_json
+from transpilex.helpers.package_json import update_package_json
 
 
 class CodeIgniterConverter:
@@ -36,15 +36,15 @@ class CodeIgniterConverter:
 
     def create_project(self):
 
-        Messenger.project_start(self.project_name)
+        Log.project_start(self.project_name)
 
         self.project_root.mkdir(parents=True, exist_ok=True)
 
         try:
             subprocess.run(f'{CODEIGNITER_PROJECT_CREATION_COMMAND} {self.project_root}', shell=True, check=True)
-            Messenger.success(f"Codeigniter project created")
+            Log.success(f"Codeigniter project created successfully")
         except subprocess.CalledProcessError:
-            Messenger.error(f"Codeigniter project creation failed")
+            Log.error(f"Codeigniter project creation failed")
             return
 
         change_extension_and_copy(CODEIGNITER_EXTENSION, self.source_path, self.project_views_path)
@@ -64,9 +64,10 @@ class CodeIgniterConverter:
             add_plugins_file(self.source_path, self.project_root)
             update_package_json(self.source_path, self.project_root, self.project_name)
 
-        Messenger.project_end(self.project_name, str(self.project_root))
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self):
+
         count = 0
 
         for file in self.project_views_path.rglob("*.php"):
@@ -92,7 +93,7 @@ class CodeIgniterConverter:
                         view_name = Path(file_path).stem
                         return f'<?php echo view("{view_name}", {php_array}) ?>'
                     except json.JSONDecodeError as e:
-                        Messenger.warning(f"[JSON Error] in file {file.name}: {e}")
+                        Log.warning(f"[JSON Error] in file {file.name}: {e}")
                         return match.group(0)
 
                 # @@include with PHP array parameters
@@ -133,10 +134,10 @@ class CodeIgniterConverter:
 
                 if content != original_content:
                     file.write_text(content, encoding="utf-8")
-                    Messenger.converted(str(file))
+                    Log.converted(str(file))
                     count += 1
 
-        Messenger.info(f"{count} files converted in {self.project_views_path}")
+        Log.info(f"{count} files converted in {self.project_views_path}")
 
     def _add_home_controller(self):
         try:
@@ -167,11 +168,11 @@ class Home extends BaseController
     }
 }
         ''')
-                Messenger.created(f"root method in HomeController.php")
+                Log.created(f"root method in HomeController.php")
             else:
-                Messenger.warning(f"HomeController not found at {self.project_home_controller_path}")
+                Log.warning(f"HomeController not found at {self.project_home_controller_path}")
         except Exception as e:
-            Messenger.error(f"Failed to update HomeController.php: {e}")
+            Log.error(f"Failed to update HomeController.php: {e}")
 
     def _patch_routes(self):
 
@@ -192,7 +193,7 @@ $routes->get('/', 'Home::index');
 $routes->get('/(:any)', 'Home::root/$1');
         """
         self.project_routes_path.write_text(new_content, encoding="utf-8")
-        Messenger.updated(f"Routes.php with custom routing")
+        Log.updated(f"Routes.php with custom routing")
 
     def _replace_partial_variables(self):
         """
@@ -213,8 +214,8 @@ $routes->get('/(:any)', 'Home::root/$1');
             new_content = pattern.sub(r'<?= $\1 ?>', content)
             if new_content != content:
                 file.write_text(new_content, encoding="utf-8")
-                Messenger.updated(str(file))
+                Log.updated(str(file))
                 count += 1
 
         if count:
-            Messenger.info(f"{count} files updated in {self.project_partials_path}")
+            Log.info(f"{count} files updated in {self.project_partials_path}")
