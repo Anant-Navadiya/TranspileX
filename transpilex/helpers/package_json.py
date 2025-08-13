@@ -1,4 +1,5 @@
 import json
+import requests
 from pathlib import Path
 from typing import Dict, Any, Optional, Set
 from transpilex.helpers.logs import Log
@@ -63,25 +64,48 @@ def update_package_json(source_folder: Path, destination_folder: Path, project_n
     Log.info(f"package.json is ready at: {destination_path}")
 
 
+_VERSION_CACHE: Dict[str, str] = {}
+
+
+def _get_latest_version(package_name: str) -> Optional[str]:
+    """Fetches the latest package version from the npm registry."""
+    if package_name in _VERSION_CACHE:
+        return _VERSION_CACHE[package_name]
+
+    try:
+        url = f"https://registry.npmjs.org/{package_name}"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        latest_version = data.get("dist-tags", {}).get("latest")
+        if not latest_version:
+            Log.warning(f"Could not find 'latest' version tag for package '{package_name}'.")
+            return None
+
+        _VERSION_CACHE[package_name] = latest_version
+        return latest_version
+
+    except requests.exceptions.RequestException as e:
+        Log.error(f"Network error fetching version for '{package_name}': {e}")
+        return None
+    except (KeyError, json.JSONDecodeError):
+        Log.warning(f"Received unexpected data structure for package '{package_name}'.")
+        return None
+
+
 def sync_package_json(
         source_folder: Path,
         destination_folder: Path,
         *,
         ignore_gulp: bool = True,
         extra_ignore: Optional[Set[str]] = None,
+        extra_plugins: Optional[Dict[str, Optional[str]]] = None,
+        extra_fields: Optional[Dict[str, Any]] = None,
 ):
     """
-    Sync ONLY dependencies/devDependencies from source -> destination and write destination/package.json.
-
-    Rules:
-    - If a package exists in destination, keep destination's version (no upgrades).
-    - If a package exists only in source, add it with the source version.
-    - Gulp-related devDependencies are removed by default (ignore_gulp=True).
-    - No other fields in destination package.json are modified.
-    - If destination package.json doesn't exist but source does, create a new file with the merged deps/devDeps.
-    - If neither exists, creates a minimal file with empty deps/devDeps.
-
-    Returns the final destination package.json dict.
+    Builds a package.json by using source as a base and merging dependencies
+    and extra fields. Destination dependency versions have priority.
     """
     GULP_DEFAULT: Set[str] = {
         "@babel/core", "@babel/preset-env", "browser-sync", "clean-css", "cross-env", "del",
@@ -93,46 +117,56 @@ def sync_package_json(
     source_path = source_folder / "package.json"
     destination_path = destination_folder / "package.json"
 
-    # read (inline)
     try:
         src_pkg: Dict[str, Any] = json.loads(source_path.read_text(encoding="utf-8")) if source_path.exists() else {}
     except Exception:
         src_pkg = {}
-
     try:
-        dst_pkg: Dict[str, Any] = json.loads(destination_path.read_text(encoding="utf-8")) if destination_path.exists() else {}
+        dst_pkg: Dict[str, Any] = json.loads(
+            destination_path.read_text(encoding="utf-8")) if destination_path.exists() else {}
     except Exception:
         dst_pkg = {}
 
-    src_deps = src_pkg.get("dependencies") or {}
-    src_dev = src_pkg.get("devDependencies") or {}
-    dst_deps = dst_pkg.get("dependencies") or {}
-    dst_dev = dst_pkg.get("devDependencies") or {}
+    # start with the source package as the base to preserve all its fields.
+    out = dict(src_pkg)
 
-    # merge
-    merged_deps: Dict[str, str] = dict(dst_deps)
-    for name, ver in src_deps.items():
-        merged_deps.setdefault(name, ver)
+    # get dependencies from both sources.
+    src_deps, src_dev = src_pkg.get("dependencies", {}), src_pkg.get("devDependencies", {})
+    dst_deps, dst_dev = dst_pkg.get("dependencies", {}), dst_pkg.get("devDependencies", {})
 
-    merged_dev: Dict[str, str] = dict(dst_dev)
-    for name, ver in src_dev.items():
-        merged_dev.setdefault(name, ver)
+    # merge dependencies, giving priority to destination versions.
+    merged_deps = {**src_deps, **dst_deps}
+    merged_dev = {**src_dev, **dst_dev}
 
-    # remove gulp-like dev deps
+    # add extra plugins to main dependencies.
+    if extra_plugins:
+        processed_plugins: Dict[str, str] = {}
+        for name, version in extra_plugins.items():
+            if version:
+                processed_plugins[name] = version
+            else:
+                latest_version = _get_latest_version(name)
+                if latest_version:
+                    processed_plugins[name] = f"^{latest_version}"
+        merged_deps.update(processed_plugins)
+
+    # filter gulp packages from devDependencies.
     if ignore_gulp:
-        ignore = set(GULP_DEFAULT) | (set(extra_ignore) if extra_ignore else set())
+        ignore = GULP_DEFAULT | (extra_ignore or set())
+        merged_dev = {k: v for k, v in merged_dev.items() if not ("gulp" in k or k in ignore)}
 
-        def is_gulp_like(n: str) -> bool:
-            return "gulp" in n or n in ignore
+    # update the output object with the final, sorted dependency lists.
+    out["dependencies"] = dict(sorted(merged_deps.items())) if merged_deps else {}
+    out["devDependencies"] = dict(sorted(merged_dev.items())) if merged_dev else {}
 
-        merged_dev = {k: v for k, v in merged_dev.items() if not is_gulp_like(k)}
+    # merge extra_fields with the highest priority.
+    if extra_fields:
+        for key, value in extra_fields.items():
+            if key in out and isinstance(out.get(key), dict) and isinstance(value, dict):
+                out[key] = {**out[key], **value}
+            else:
+                out[key] = value
 
-    # build output (preserve all other destination fields)
-    out = dict(dst_pkg) if dst_pkg else {}
-    out["dependencies"] = dict(sorted(merged_deps.items())) if merged_deps else out.get("dependencies", {})
-    out["devDependencies"] = dict(sorted(merged_dev.items())) if merged_dev else out.get("devDependencies", {})
-
-    # Ensure folder exists and write
     destination_folder.mkdir(parents=True, exist_ok=True)
     with open(destination_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)

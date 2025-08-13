@@ -55,7 +55,7 @@ class LaravelConverter:
                 subprocess.run(LARAVEL_PROJECT_CREATION_COMMAND_AUTH, cwd=self.project_root, check=True,
                                capture_output=True, text=True)
 
-                Log.success("Laravel project created successfully.")
+                Log.success("Laravel project created successfully")
 
                 remove_git_folder(self.project_root)
 
@@ -562,7 +562,7 @@ Route::group(['prefix' => '/'], function () {
             if self.ROUTE_STRICT and file not in self.href_route_index:
                 # leave as-is so the user sees it and can change route manually
                 # (also log it for convenience)
-                Log.warning(f"No exact match for href '{file}'. Left unchanged.")
+                Log.warning(f"No exact match for href '{file}'. Left unchanged")
                 return m.group(0)
 
             route = self.href_route_index.get(file)
@@ -598,7 +598,7 @@ Route::group(['prefix' => '/'], function () {
 
             if num_replacements > 0:
                 self.project_vite_path.write_text(new_content, encoding="utf-8")
-                Log.info(f"Updated vite.config.js with {len(self.vite_inputs)} inputs.")
+                Log.info(f"Updated vite.config.js with {len(self.vite_inputs)} inputs")
                 return
 
             # If no 'input' array was found, try to inject one into the laravel plugin config.
@@ -609,7 +609,7 @@ Route::group(['prefix' => '/'], function () {
 
             if num_injections > 0:
                 self.project_vite_path.write_text(new_content, encoding="utf-8")
-                Log.info(f"Added input array to vite.config.js ({len(self.vite_inputs)} inputs).")
+                Log.info(f"Added input array to vite.config.js ({len(self.vite_inputs)} inputs)")
                 return
 
         # Create (or overwrite) the file with a minimal, valid config.

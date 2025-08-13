@@ -51,7 +51,7 @@ class SymfonyConverter:
 
         change_extension_and_copy(SYMFONY_EXTENSION, self.source_path, self.project_pages_path)
 
-        self._convert(self.project_pages_path)
+        self._convert()
 
         self._replace_partial_variables()
 
@@ -140,17 +140,17 @@ class SymfonyConverter:
 
         return processed_content, twig_title_block.strip()
 
-    def _convert(self, dist_folder):
-        dist_path = Path(dist_folder)
+    def _convert(self):
+
         count = 0
 
-        for file in dist_path.rglob("*.html.twig"):
+        for file in self.project_pages_path.rglob("*.html.twig"):
             if not file.is_file():
                 continue
 
             content = file.read_text(encoding="utf-8")
 
-            is_partial = 'partials' in str(file.relative_to(dist_path))
+            is_partial = 'partials' in str(file.relative_to(self.project_pages_path))
 
             if is_partial:
                 # For partials, just process includes and clean paths. No layout.

@@ -21,7 +21,8 @@ PHP_GULP_ASSETS_PATH = './src/assets'
 # Laravel
 LARAVEL_INSTALLER_COMMAND = 'composer global require laravel/installer'
 LARAVEL_PROJECT_CREATION_COMMAND = 'laravel new'
-LARAVEL_PROJECT_CREATION_COMMAND_AUTH = ['git', 'clone', 'https://github.com/transpilex/laravel-with-auth.git', '.']
+LARAVEL_PROJECT_CREATION_COMMAND_AUTH = ['git', 'clone',
+                                         'https://github.com/transpilex/laravel-boilerplate-with-auth.git', '.']
 LARAVEL_DESTINATION_FOLDER = 'laravel'
 LARAVEL_EXTENSION = '.blade.php'
 LARAVEL_ASSETS_FOLDER = 'resources'
@@ -53,6 +54,27 @@ SYMFONY_ASSETS_FOLDER = 'public'
 SYMFONY_ASSETS_PRESERVE = ["index.php"]
 SYMFONY_GULP_ASSETS_PATH = './public'
 
+# Node
+NODE_DESTINATION_FOLDER = 'node'
+NODE_EXTENSION = '.ejs'
+NODE_ASSETS_FOLDER = 'public'
+NODE_GULP_ASSETS_PATH = './public'
+
+# Django
+DJANGO_COOKIECUTTER_REPO = 'https://github.com/transpilex/cookiecutter-django.git'
+DJANGO_DESTINATION_FOLDER = 'django'
+DJANGO_ASSETS_FOLDER = 'static'
+DJANGO_EXTENSION = '.html'
+
+# Flask
+FLASK_PROJECT_CREATION_COMMAND = ['git', 'clone', 'https://github.com/transpilex/flask-boilerplate.git', '.']
+FLASK_PROJECT_CREATION_COMMAND_AUTH = ['git', 'clone', 'https://github.com/transpilex/flask-boilerplate-with-auth.git',
+                                       '.']
+FLASK_DESTINATION_FOLDER = 'flask'
+FLASK_ASSETS_FOLDER = 'apps/static'
+FLASK_EXTENSION = '.html'
+FLASK_GULP_ASSETS_PATH = './apps/static'
+
 # Ror
 ROR_DESTINATION_FOLDER = 'ror'
 ROR_ASSETS_FOLDER = 'frontend'
@@ -78,3 +100,13 @@ SPRING_DESTINATION_FOLDER = 'spring'
 SPRING_ASSETS_FOLDER = 'src/main/resources/static/'
 SPRING_EXTENSION = '.html'
 SPRING_GULP_ASSETS_PATH = './src/main/resources/static/'
+
+TITLE_KEYS = ["title", "pageTitle"]
+SUBTITLE_KEYS = ["subtitle", "subTitle", "pageSubText"]
+
+FILENAME_PRIORITY = [
+    'page-title.html',
+    'app-pagetitle.html',
+    'title-meta.html',
+    'app-meta-title.html'
+]

@@ -1,172 +1,272 @@
 import re
 import json
-import subprocess
+import ast
 from pathlib import Path
 
+from transpilex.config.base import NODE_ASSETS_FOLDER, NODE_DESTINATION_FOLDER, NODE_EXTENSION, NODE_GULP_ASSETS_PATH, \
+    FILENAME_PRIORITY, TITLE_KEYS
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
+from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
-from transpilex.helpers.package_json import update_package_json
+from transpilex.helpers.package_json import sync_package_json
 
+class NodeConverter:
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
+        self.project_name = project_name
+        self.source_path = Path(source_path)
+        self.destination_path = Path(NODE_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
+        self.include_gulp = include_gulp
 
-def extract_meta(content):
-    # Try to extract from page-title first
-    match_page_title = re.search(r"""@@include\(\s*['"]\.\/partials\/page-title\.html['"]\s*,\s*(\{.*?\})\s*\)""",
-                                 content)
-    if match_page_title:
-        try:
-            data = json.loads(match_page_title.group(1))
-            return {"title": data.get("title"), "subtitle": data.get("subtitle")}
-        except json.JSONDecodeError:
-            print("⚠️ Invalid JSON in page-title include.")
+        self.project_root = self.destination_path / project_name
+        self.project_assets_path = self.project_root / NODE_ASSETS_FOLDER
+        self.project_views_path = Path(self.project_root / "views")
+        self.project_routes_path = Path(self.project_root / "routes")
+
+        self.project_root.mkdir(parents=True, exist_ok=True)
+
+        self.create_project()
+
+    def create_project(self):
+        Log.project_start(self.project_name)
+
+        change_extension_and_copy(NODE_EXTENSION, self.source_path, self.project_views_path)
+
+        self._create_routes()
+
+        self._convert()
+
+        self._replace_partial_variables()
+
+        self._create_app_js()
+
+        copy_assets(self.assets_path, self.project_assets_path)
+
+        if self.include_gulp:
+            add_gulpfile(self.project_root, NODE_GULP_ASSETS_PATH)
+            add_plugins_file(self.source_path, self.project_root)
+
+        sync_package_json(self.source_path, self.project_root,
+                          ignore_gulp=not self.include_gulp,
+                          extra_fields={
+                              "scripts": {
+                                  "start": "npm-run-all preview",
+                                  "preview": "nodemon app.js"
+                              },
+                          },
+                          extra_plugins={"cookie-parser": None, "ejs": None, "express": None,
+                                         "express-ejs-layouts": None, "express-fileupload": None,
+                                         "express-session": None, "nodemon": None, "npm-run-all": None, "path": None})
+
+        Log.project_end(self.project_name, str(self.project_root))
+
+    def _convert(self):
+        """
+        Convert all @@include(...) in .html files to <%- include(...) %> (EJS syntax)
+        using a single, unified regular expression.
+        """
+        count = 0
+
+        def strip_extension(path):
+            """
+            Strip .html or .htm extension from a path string
+            """
+            return re.sub(r'\.html?$', '', path)
+
+        for file in self.project_views_path.rglob("*"):
+            if file.is_file() and file.suffix in ['.html', '.ejs']:
+                original = file.read_text(encoding="utf-8")
+                content = original
+
+                # expression finds an @@include, captures the path (group 1),
+                # and optionally matches (and discards) a data block.
+                content = re.sub(
+                    r"@@include\(['\"](.+?)['\"]\s*(?:,\s*\{.*?\}\s*)?\)",
+                    lambda m: f"<%- include('{strip_extension(m.group(1))}') %>",
+                    content,
+                    flags=re.DOTALL
+                )
+
+                content = replace_html_links(content, '')
+                content = clean_relative_asset_paths(content)
+
+                if content != original:
+                    file.write_text(content, encoding="utf-8")
+                    Log.converted(str(file))
+                    count += 1
+
+        Log.info(f"{count} files converted in {self.project_views_path}")
+
+    def _extract_meta(self, content: str):
+        """
+        Extracts metadata from the highest-priority @@include statement in the content.
+        Now returns the entire cleaned data object.
+        """
+        # The first part of the function (pattern, matches, sorting) remains the same.
+        pattern = re.compile(
+            r"""@@include\(\s*
+                ['"](?P<path>.*?)['"]\s*,\s* # Capture the file path
+                (?P<data_str>\{.*?\})\s* # Capture the data object string
+                \)\s*""",
+            re.VERBOSE | re.DOTALL
+        )
+
+        matches = list(pattern.finditer(content))
+        if not matches:
             return {}
 
-    # Fallback: try from title-meta
-    match_title_meta = re.search(r"""@@include\(\s*['"]\.\/partials\/title-meta\.html['"]\s*,\s*(\{.*?\})\s*\)""",
-                                 content)
-    if match_title_meta:
-        try:
-            data = json.loads(match_title_meta.group(1))
-            return {"title": data.get("title")}
-        except json.JSONDecodeError:
-            print("⚠️ Invalid JSON in title-meta include.")
-            return {}
+        def get_priority(match):
+            path = match.group('path').split('/')[-1]
+            try:
+                return FILENAME_PRIORITY.index(path)
+            except ValueError:
+                return len(FILENAME_PRIORITY)
 
-    return {}
+        matches.sort(key=get_priority)
 
+        # Process matches in order of priority
+        for match in matches:
+            data_str = match.group('data_str')
+            try:
+                data = ast.literal_eval(data_str)
+            except (ValueError, SyntaxError):
+                continue
 
-def generate_route(file_name, meta):
-    route_path = "/" if file_name == "index" else f"/{file_name}"
-    route = f"route.get('{route_path}', (req, res, next) => {{\n"
+            # Check if at least one of the known title keys exists.
+            if any(key in data for key in TITLE_KEYS):
+                # clean ALL values and return the whole dictionary.
+                cleaned_data = {}
+                for key, value in data.items():
+                    if isinstance(value, str):
+                        # Collapse whitespace (like newlines) into a single space
+                        cleaned_data[key] = ' '.join(value.split())
+                    else:
+                        # Keep non-string values (numbers, booleans) as-is
+                        cleaned_data[key] = value
+                return cleaned_data
 
-    render_line = f"    res.render('{file_name}'"
-    if "title" in meta:
-        render_line += f", {{ title: '{meta['title']}'"
-        if "subtitle" in meta:
-            render_line += f", subtitle: '{meta['subtitle']}'"
-        render_line += " })"
-    render_line += ";"
+        return {}
 
-    route += render_line + "\n});\n"
-    return route
+    def _add_route(self, file_name, meta):
+        """
+        Generates a route that passes the entire meta object to the template.
+        """
+        route_path = "/" if file_name == "index" else f"/{file_name}"
+        route = f"route.get('{route_path}', (req, res, next) => {{\n"
 
+        render_line = f"    res.render('{file_name}'"
 
-def generate_express_routes(view_folder, output_file):
-    folder = Path(view_folder)
-    if not folder.exists():
-        print(f"❌ Folder '{view_folder}' not found.")
-        return
+        if meta:
+            js_object_parts = []
+            for key, value in meta.items():
+                # Use json.dumps to safely convert the Python value to a
+                # JavaScript-compatible value string. It handles quotes, booleans, etc.
+                js_value = json.dumps(value)
+                js_object_parts.append(f"{key}: {js_value}")
 
-    routes_dir = output_file / 'routes'
-    routes_dir.mkdir(parents=True, exist_ok=True)
+            # Join all the key: value pairs with commas
+            js_object_string = ", ".join(js_object_parts)
+            render_line += f", {{ {js_object_string} }}"
 
-    route_file = routes_dir / 'route.js'
+        render_line += ");"
+        route += render_line + "\n});\n"
+        return route
 
-    routes = [
-        "const express = require('express');",
-        "const route = express.Router();\n"
-    ]
+    def _create_routes(self):
 
-    skipped = []
+        if not self.project_views_path.exists():
+            Log.error(f"Folder '{self.project_views_path}' not found")
+            return
 
-    for file in folder.glob("*.ejs"):
-        content = file.read_text(encoding="utf-8")
-        file_name = file.stem
-        meta = extract_meta(content)
+        self.project_routes_path.mkdir(parents=True, exist_ok=True)
 
-        if not meta.get("title") and not meta.get("subtitle"):
-            print(f"⚠️ Skipping '{file_name}.ejs': no title found.")
-            skipped.append(file_name)
-            continue
+        route_file = self.project_routes_path / 'index.js'
 
-        route_code = generate_route(file_name, meta)
-        routes.append(route_code)
+        routes = [
+            "const express = require('express');",
+            "const route = express.Router();\n"
+        ]
 
-    routes.append("\nmodule.exports = route;")
-    route_file.write_text("\n".join(routes), encoding="utf-8")
+        skipped = []
 
-    print(f"\n✅ Generated routes in '{output_file}'.")
-    if skipped:
-        print(f"⚠️ Skipped files with no meta: {', '.join(skipped)}")
+        for file in self.project_views_path.glob("*.ejs"):
+            content = file.read_text(encoding="utf-8")
+            file_name = file.stem
+            meta = self._extract_meta(content)
 
+            if not any(key in meta for key in TITLE_KEYS):
+                Log.warning(f"Skipping: {file_name}.ejs as no title key found")
+                skipped.append(file_name)
+                continue
 
-def convert_to_node(dist_folder):
+            route_code = self._add_route(file_name, meta)
+            routes.append(route_code)
+
+        routes.append("\nmodule.exports = route;")
+        route_file.write_text("\n".join(routes), encoding="utf-8")
+
+        Log.created(f"route.js at {self.project_routes_path}")
+        if skipped:
+            Log.warning(f"Skipped files with no meta: {', '.join(skipped)}")
+
+    def _create_app_js(self):
+        """Creates the main app.js file in the project root"""
+        app_js_path = self.project_root / 'app.js'
+
+        # The content for the app.js file
+        content = """const express = require('express');
+const app = express();
+const path = require('path');
+const expressLayouts = require('express-ejs-layouts');
+const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const upload = require('express-fileupload');
+const route = require('./routes/index');
+
+app.set('views', path.join(__dirname, '/views'));
+app.set('view engine', 'ejs');
+app.use(upload());
+
+app.use(express.json());
+app.use(session({ resave: false, saveUninitialized: true, secret: 'nodedemo' }));
+app.use(cookieParser());
+
+app.use(express.static(__dirname + '/public'));
+
+app.use('/', route);
+
+const http = require("http").createServer(app);
+
+const port = 3000
+
+http.listen(port, () => {
+    console.log(`Server running on port ${port}`)
+    console.log(`http://localhost:${port}`)
+});
     """
-    Convert all @@include(...) in .html files to <%- include(...) %> (EJS syntax)
-    Removes all parameters passed in include (if any).
-    """
-    folder = Path(dist_folder)
-    updated_files = 0
+        app_js_path.write_text(content, encoding="utf-8")
+        Log.created(f"app.js at {self.project_root}")
 
-    for file in folder.rglob("*"):
-        if file.is_file() and file.suffix in ['.html', '.ejs']:
-            original = file.read_text(encoding="utf-8")
-            content = original
+    def _replace_partial_variables(self):
+        count = 0
+        pattern = re.compile(r'@@(?!if\b|include\b)([A-Za-z_]\w*)\b')
 
-            # Convert @@include('path', {...}) → <%- include('path') %>
-            content = re.sub(
-                r"@@include\(['\"](.+?)['\"]\s*,\s*\{.*?\}\s*\)",
-                lambda m: f"<%- include('{strip_extension(m.group(1))}') %>",
-                content
-            )
+        for file in self.project_views_path.rglob(f"*{NODE_EXTENSION}"):
+            if not file.is_file():
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
 
-            # Convert @@include('path') → <%- include('path') %>
-            content = re.sub(
-                r"@@include\(['\"](.+?)['\"]\)",
-                lambda m: f"<%- include('{strip_extension(m.group(1))}') %>",
-                content
-            )
+            new_content = pattern.sub(r'<%- \1 %>', content)
+            if new_content != content:
+                file.write_text(new_content, encoding="utf-8")
+                Log.updated(str(file))
+                count += 1
 
-            # replace .html with .php in anchor
-            content = replace_html_links(content, '')
-
-            if content != original:
-                file.write_text(content, encoding="utf-8")
-                print(f"✅ Converted: {file}")
-                updated_files += 1
-
-    print(f"\n🔄 Done. Updated {updated_files} HTML file(s).")
-
-
-def strip_extension(path):
-    """
-    Strip .html or .htm extension from a path string
-    """
-    return re.sub(r'\.html?$', '', path)
-
-
-def create_node_project(project_name, source_folder, assets_folder):
-    """
-    1. Create a new Core project using Composer.
-    2. Copy all files from the source_folder to the new project's templates/Pages folder.
-    3. Convert the includes to Codeigniter-style using convert_to_codeigniter().
-    4. Add HomeController.php to the Controllers folder.
-    5. Patch routes.
-    6. Copy custom assets to public, preserving required files.
-    """
-
-    project_root = Path("node") / project_name
-    project_views = project_root / "views"
-
-    print(f"📦 Creating Node project at: '{project_root}'...")
-    project_root.mkdir(parents=True, exist_ok=True)
-
-    # Copy HTML -> EJS to views
-    change_extension_and_copy("ejs", source_folder, project_views)
-
-    generate_express_routes(project_views, project_root)
-
-    # Replace @@include with PHP include() in .php files
-    convert_to_node(project_views)
-
-    # Copy assets
-    assets_path = project_root / "assets"
-    copy_assets(assets_folder, assets_path)
-
-    # Create gulpfile.js
-    add_gulpfile(project_root, './assets')
-
-    # Update dependencies
-    # update_package_json(source_folder, project_root, project_name)
-
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")
+        if count:
+            Log.info(f"{count} files updated in {self.project_views_path}")

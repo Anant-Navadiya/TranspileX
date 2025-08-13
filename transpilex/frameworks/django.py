@@ -6,8 +6,61 @@ from bs4 import BeautifulSoup
 from cookiecutter.main import cookiecutter
 import sys
 
+from transpilex.config.base import DJANGO_DESTINATION_FOLDER, DJANGO_ASSETS_FOLDER, DJANGO_COOKIECUTTER_REPO, \
+    DJANGO_EXTENSION
 from transpilex.helpers import copy_assets, change_extension_and_copy
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
+from transpilex.helpers.logs import Log
+
+
+class DjangoConverter:
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
+                 auth: bool = False):
+        self.project_name = project_name
+        self.source_path = Path(source_path)
+        self.destination_path = Path(DJANGO_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
+        self.include_gulp = include_gulp
+
+        self.project_root = Path(self.destination_path / project_name)
+        self.project_assets_path = Path(self.project_root / self.project_name / DJANGO_ASSETS_FOLDER)
+        self.project_pages_path = Path(self.project_root / self.project_name / "templates" / "pages")
+
+        self.auth_required = auth
+
+        self.create_project()
+
+    def create_project(self):
+
+        Log.project_start(self.project_name)
+
+        try:
+            # self.project_root.mkdir(parents=True, exist_ok=True)
+
+            cookiecutter(
+                DJANGO_COOKIECUTTER_REPO,
+                output_dir=str(self.project_root.parent),
+                no_input=True,
+                extra_context={'project_name': self.project_name,
+                               'frontend_pipeline': 'Gulp' if self.include_gulp else 'None', 'username_type': 'email',
+                               'open_source_license': 'Not open source', 'auth': 'y' if self.auth_required else 'n'},
+            )
+
+            Log.success("Django project created successfully")
+
+        except subprocess.CalledProcessError:
+            Log.error("Django project creation failed")
+            return
+
+        self.project_pages_path.mkdir(parents=True, exist_ok=True)
+
+        change_extension_and_copy(DJANGO_EXTENSION, self.source_path, self.project_pages_path)
+
+        convert_to_django_templates(self.project_pages_path)
+
+        copy_assets(self.assets_path, self.project_assets_path)
+
+        Log.project_end(self.project_name, str(self.project_root))
 
 
 def extract_json_from_include(json_str):
@@ -16,6 +69,7 @@ def extract_json_from_include(json_str):
         return json.loads(json_text)
     except Exception:
         return None  # None means keep original
+
 
 def format_django_include_dynamic(context_dict):
     parts = []
@@ -31,6 +85,7 @@ def format_django_include_dynamic(context_dict):
         parts.append(f"{key}={val}")
     return f"{{% include 'partials/page-title.html' with {' '.join(parts)} %}}"
 
+
 def find_balanced_json(text, start_index):
     """Extracts a balanced JSON block starting from the given index."""
     brace_count = 0
@@ -45,6 +100,7 @@ def find_balanced_json(text, start_index):
                 return text[start_index:end_index + 1], end_index + 1
         end_index += 1
     return None, start_index
+
 
 def replace_page_title_include(content):
     pattern = r'@@include\(\s*[\'"](?:\.\/)?partials/page-title\.html[\'"]\s*,\s*'

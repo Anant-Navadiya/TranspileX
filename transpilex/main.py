@@ -6,11 +6,11 @@ from transpilex.frameworks.cakephp import CakePHPConverter
 from transpilex.frameworks.codeigniter import CodeIgniterConverter
 from transpilex.frameworks.core import create_core_project
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
-from transpilex.frameworks.django import create_django_project
-from transpilex.frameworks.flask import create_flask_project
+from transpilex.frameworks.django import create_django_project, DjangoConverter
+from transpilex.frameworks.flask import FlaskConverter
 from transpilex.frameworks.laravel import LaravelConverter
 from transpilex.frameworks.mvc import create_mvc_project
-from transpilex.frameworks.node import create_node_project
+from transpilex.frameworks.node import NodeConverter
 from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.ror import RoRConverter
 from transpilex.frameworks.spring import SpringConverter
@@ -45,6 +45,11 @@ def main():
     add_common_framework_args(php_p)
     php_p.add_argument("--no-gulp", action='store_true')
 
+    # laravel
+    laravel_p = subparsers.add_parser("laravel", help="Convert to Laravel")
+    add_common_framework_args(laravel_p)
+    laravel_p.add_argument("--auth", action='store_true')
+
     # cakephp
     cakephp_p = subparsers.add_parser("cakephp", help="Convert to CakePHP")
     add_common_framework_args(cakephp_p)
@@ -60,16 +65,22 @@ def main():
     add_common_framework_args(symfony_p)
     symfony_p.add_argument("--no-gulp", action='store_true')
 
-    # laravel
-    laravel_p = subparsers.add_parser("laravel", help="Convert to Laravel")
-    add_common_framework_args(laravel_p)
-    laravel_p.add_argument("--auth", action='store_true')
+    # node
+    node_p = subparsers.add_parser("node", help="Convert to Node")
+    add_common_framework_args(node_p)
+    node_p.add_argument("--no-gulp", action='store_true')
 
     # django
     django_p = subparsers.add_parser("django", help="Convert to Django")
     add_common_framework_args(django_p)
-    django_p.add_argument("--django-app", default="core")
-    django_p.add_argument("--django-db", default="sqlite", choices=["sqlite", "postgres"])
+    django_p.add_argument("--no-gulp", action='store_true')
+    django_p.add_argument("--auth", action='store_true')
+
+    # flask
+    flask_p = subparsers.add_parser("flask", help="Convert to Flask")
+    add_common_framework_args(flask_p)
+    flask_p.add_argument("--no-gulp", action='store_true')
+    flask_p.add_argument("--auth", action='store_true')
 
     args = parser.parse_args()
 
@@ -107,16 +118,18 @@ def main():
         'laravel': make_class_handler(LaravelConverter),
         'cakephp': make_class_handler(CakePHPConverter),
         'codeigniter': make_class_handler(CodeIgniterConverter),
-        'ror': make_class_handler(RoRConverter),
-        'blazor': make_class_handler(BlazorConverter),
-        'core-to-mvc': make_class_handler(CoreToMvcConverter),
-        'spring': make_class_handler(SpringConverter),
         'symfony': make_class_handler(SymfonyConverter),
-        'node': make_func_handler(create_node_project),
-        'django': make_func_handler(create_django_project),
-        'flask': make_func_handler(create_flask_project),
+        'node': make_class_handler(NodeConverter),
+        'django': make_class_handler(DjangoConverter),
+        'flask': make_class_handler(FlaskConverter),
+
         'core': make_func_handler(create_core_project),
         'mvc': make_func_handler(create_mvc_project),
+        'blazor': make_class_handler(BlazorConverter),
+        'core-to-mvc': make_class_handler(CoreToMvcConverter),
+
+        'ror': make_class_handler(RoRConverter),
+        'spring': make_class_handler(SpringConverter),
     }
 
     handler = handlers.get(args.framework)
@@ -132,15 +145,15 @@ def framework_specific_kwargs(args):
     Extract only the flags relevant to the chosen subparser.
     Keep it explicit to avoid leaking unrelated args.
     """
-    if args.framework == "php" or args.framework == "cakephp" or args.framework == "codeigniter" or args.framework == "symfony":
+    if args.framework == "php" or args.framework == "cakephp" or args.framework == "codeigniter" or args.framework == "symfony" or args.framework == "node":
         return {"include_gulp": not args.no_gulp}
     if args.framework == "laravel":
         return {
             "auth": args.auth,
         }
-    if args.framework == "django":
+    if args.framework == "flask" or args.framework == "django":
         return {
-            "app_name": args.django_app,
-            "db": args.django_db,
+            "include_gulp": not args.no_gulp,
+            "auth": args.auth
         }
     return {}
