@@ -11,11 +11,13 @@ from transpilex.config.base import LARAVEL_DESTINATION_FOLDER, LARAVEL_ASSETS_FO
     LARAVEL_PROJECT_CREATION_COMMAND, LARAVEL_PROJECT_CREATION_COMMAND_AUTH
 from transpilex.helpers import copy_assets, change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
+from transpilex.helpers.copy_assets import copy_assets_in_public
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.git import remove_git_folder
 from transpilex.helpers.logs import Log
 from transpilex.helpers.package_json import sync_package_json
 from transpilex.helpers.restructure_files import restructure_files
+from transpilex.helpers.validations import folder_exists
 
 
 class LaravelConverter:
@@ -45,6 +47,14 @@ class LaravelConverter:
         self.create_project()
 
     def create_project(self):
+
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
 
         Log.project_start(self.project_name)
 
@@ -89,7 +99,7 @@ class LaravelConverter:
             self._add_routing_controller_file()
             self._add_routes_web_file()
 
-        public_only = self._copy_public_assets()
+        public_only = copy_assets_in_public(self.assets_path, self.project_assets_path)
 
         copy_assets(
             self.assets_path,
@@ -455,25 +465,6 @@ Route::group(['prefix' => '/'], function () {
             Log.updated(f"routing file {self.project_routes_path.relative_to(self.project_root)}")
         except Exception as e:
             Log.error(f"Error writing to {self.project_routes_path}: {e}")
-
-    def _copy_public_assets(self):
-        public_root = self.project_root / "public"
-        public_root.mkdir(parents=True, exist_ok=True)
-
-        candidates = ["images", "img", "media", "data", "json"]
-        copied = set()
-
-        for name in candidates:
-            src = self.assets_path / name
-            if src.exists() and src.is_dir():
-                dest = public_root / name
-                if dest.exists():
-                    shutil.rmtree(dest)
-                shutil.copytree(src, dest)
-                copied.add(name)
-                Log.copied(f"{src} → {dest}")
-
-        return copied
 
     def _copy_partials(self):
         self.project_partials_path.mkdir(parents=True, exist_ok=True)

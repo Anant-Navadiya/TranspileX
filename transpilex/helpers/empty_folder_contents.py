@@ -30,3 +30,6 @@ def empty_folder_contents(folder_path: Path, skip=None):
                 shutil.rmtree(item)
         except Exception as e:
             Log.error(f"Error removing {item}: {e}")
+
+    if not any(folder_path.iterdir()):
+        folder_path.rmdir()

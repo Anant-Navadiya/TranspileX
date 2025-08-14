@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from transpilex.helpers import copy_assets
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing

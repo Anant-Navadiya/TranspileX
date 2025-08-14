@@ -1,16 +1,18 @@
 from pathlib import Path
 import requests, zipfile, io
 
-from transpilex.config.base import ASSETS_PATH, SOURCE_PATH, SPRING_DESTINATION_FOLDER
+from transpilex.config.base import SPRING_DESTINATION_FOLDER, \
+    SPRING_BOOT_PROJECT_CREATION_URL, SPRING_BOOT_PROJECT_PARAMS
+from transpilex.helpers.logs import Log
+from transpilex.helpers.validations import folder_exists
 
 
 class SpringConverter:
-    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=SPRING_DESTINATION_FOLDER,
-                 assets_path=ASSETS_PATH):
+    def __init__(self, project_name: str, source_path: str, assets_path: str):
         self.project_name = project_name
         self.source_path = Path(source_path)
-        self.destination_path = Path(destination_folder)
-        self.assets_path = Path(assets_path)
+        self.destination_path = Path(SPRING_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
 
         self.project_root = self.destination_path / self.project_name
         # self.project_assets_path = self.project_root / CAKEPHP_ASSETS_FOLDER
@@ -23,20 +25,41 @@ class SpringConverter:
 
     def create_project(self):
 
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
+        Log.project_start(self.project_name)
+
         params = {
-            "type": "maven-project",
-            "language": "java",
-            "bootVersion": "3.5.3",
+            **SPRING_BOOT_PROJECT_PARAMS,
             "baseDir": self.project_name,
-            "groupId": "com",
             "artifactId": self.project_name,
             "name": self.project_name,
             "packageName": f"com.{self.project_name}",
-            "packaging": "jar",
-            "javaVersion": "24",
-            "dependencies": "web,thymeleaf,devtools",
         }
 
-        r = requests.get("https://start.spring.io/starter.zip", params=params)
-        z = zipfile.ZipFile(io.BytesIO(r.content))
-        z.extractall(self.destination_path)
+        try:
+            r = requests.get(SPRING_BOOT_PROJECT_CREATION_URL, params=params, timeout=10)
+            r.raise_for_status()
+
+            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+                z.extractall(self.destination_path)
+
+            Log.success("Spring Boot project created successfully")
+
+        except requests.exceptions.RequestException as e:
+            Log.error(f"Network or request error: {e}")
+
+        except zipfile.BadZipFile:
+            Log.error("Downloaded file is not a valid ZIP archive")
+
+        except OSError as e:
+            Log.error(f"File system error while extracting: {e}")
+
+        except Exception as e:
+            Log.error(f"Unexpected error: {e}")

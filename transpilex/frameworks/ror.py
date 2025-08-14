@@ -1,320 +1,187 @@
 import os
 import re
-import json
+import ast
 import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
 import shutil
 
-from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, ROR_DESTINATION_FOLDER, ROR_ASSETS_FOLDER, ROR_EXTENSION
-from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.empty_folder_contents import empty_folder_contents
+from transpilex.config.base import ROR_DESTINATION_FOLDER, ROR_ASSETS_FOLDER, ROR_EXTENSION, \
+    ROR_PROJECT_CREATION_COMMAND, ROR_ASSETS_PRESERVE
+from transpilex.helpers import copy_assets, change_extension_and_copy
+from transpilex.helpers.copy_assets import copy_assets_in_public
+from transpilex.helpers.git import remove_git_folder
 from transpilex.helpers.logs import Log
+from transpilex.helpers.package_json import sync_package_json
 from transpilex.helpers.restructure_files import restructure_files
+from transpilex.helpers.validations import folder_exists
 
 
 class RoRConverter:
-    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=ROR_DESTINATION_FOLDER,
-                 assets_path=ASSETS_PATH):
+    def __init__(self, project_name: str, source_path: str, assets_path: str):
         self.project_name = project_name
         self.source_path = Path(source_path)
-        self.destination_path = Path(destination_folder)
-        self.assets_path = Path(assets_path)
+        self.destination_path = Path(ROR_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
 
         self.project_root = self.destination_path / project_name
-        self.project_assets_path = self.project_root / ROR_ASSETS_FOLDER
-        self.project_views_path = self.project_root / "app" / "views"
-        self.project_controllers_path = self.project_root / "app" / "controllers"
+        self.project_assets_path = Path(self.project_root / ROR_ASSETS_FOLDER)
+        self.project_views_path = Path(self.project_root / "app" / "views")
+        self.project_partials_path = Path(self.project_views_path / "partials")
+        self.project_controllers_path = Path(self.project_root / "app" / "controllers")
         self.project_routes_path = self.project_root / "config" / "routes.rb"
 
         self.create_project()
 
     def create_project(self):
 
-        Log.info(f"Creating RoR project at: '{self.project_root}'...")
-
-        self.project_root.mkdir(parents=True, exist_ok=True)
-
-        try:
-            subprocess.run(f'rails new {self.project_root}', shell=True, check=True)
-            Log.success(f"RoR project created.")
-        except subprocess.CalledProcessError:
-            Log.error(f"RoR project creation failed.")
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
             return
 
-        empty_folder_contents(self.project_views_path)
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
+        Log.project_start(self.project_name)
+
+        try:
+            self.project_root.mkdir(parents=True, exist_ok=True)
+
+            subprocess.run(ROR_PROJECT_CREATION_COMMAND, cwd=self.project_root, check=True, capture_output=True,
+                           text=True)
+
+            Log.success("RoR project created successfully")
+
+            remove_git_folder(self.project_root)
+
+        except subprocess.CalledProcessError:
+            Log.error("RoR project creation failed")
+            return
 
         restructure_files(self.source_path, self.project_views_path, new_extension=ROR_EXTENSION,
-                          skip_dirs=['partials'], keep_underscore=True)
+                          ignore_list=['partials'], keep_underscore=True)
+
+        self._copy_partials()
 
         self._convert()
 
+        self._replace_partial_variables()
+
         self._create_controllers(ignore_list=["layouts", "partials"])
 
-        # update_package_json(self.source_path, self.project_root, self.project_name)
+        public_only = copy_assets_in_public(self.assets_path, Path(self.project_root / "public"),
+                                            ["media", "data", "json"])
 
-        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        copy_assets(
+            self.assets_path,
+            self.project_assets_path,
+            preserve=ROR_ASSETS_PRESERVE,
+            exclude=public_only
+        )
+
+        sync_package_json(self.source_path, self.project_root)
+
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self):
         """
-        Converts HTML files with custom @@include statements into Ruby on Rails ERB views.
+        Processes all .html.erb files, dispatching them to the correct
+        processor (page or partial) based on their path.
         """
         count = 0
+        all_files = list(self.project_views_path.rglob("*.html.erb"))
 
-        for file in self.project_views_path.rglob(f"*.html.erb"):
-            with open(file, "r", encoding="utf-8") as f:
-                content = f.read()
+        for file in all_files:
+            # A file is considered a partial if it's inside a 'partials' directory
+            # or if its name starts with an underscore.
+            is_partial = 'partials' in file.parts or file.name.startswith('_')
 
-            original_content = content
-            soup_original = BeautifulSoup(original_content, 'html.parser')
+            if is_partial:
+                self._process_partial_file(file)
+            else:
+                self._process_page_file(file)
 
-            # --- Extract and remove page-title include ---
-            page_title_render_string = ""
-            page_title_include_params = {}
-            title_from_page_title_include = None
-
-            # Pattern to find @@include for page-title.html and capture its parameters
-            page_title_pattern = r'(@@include\(\s*["\']\.?\/?partials\/page-title\.html["\']\s*,\s*(\{[\s\S]*?\})\s*\))'
-            page_title_match = re.search(page_title_pattern, original_content, flags=re.DOTALL)
-
-            if page_title_match:
-                full_include_string = page_title_match.group(1)  # The entire @@include(...) string
-                params_str = page_title_match.group(2)  # Just the parameters part (e.g., {"title": "Calendar"})
-
-                page_title_include_params = self._extract_params_from_include(params_str)
-
-                if page_title_include_params:
-                    def ruby_value(v):
-                        if isinstance(v, str):
-                            escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
-                            return f'"{escaped}"'
-                        elif isinstance(v, bool):
-                            return 'true' if v else 'false'
-                        elif v is None:
-                            return 'nil'
-                        else:
-                            return str(v)
-
-                    params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in page_title_include_params.items())
-                    page_title_render_string = f"<%= render 'layouts/partials/page_title', {params_str_ruby} %>\n\n"
-
-                    if "title" in page_title_include_params:
-                        title_from_page_title_include = page_title_include_params["title"]
-
-                content = content.replace(full_include_string, "")
-
-            # --- Handle generic partials with params (except page-title) ---
-            pattern_all_partials_with_params = r'@@include\(\s*["\']\.?\/?partials\/(?!page-title\.html)([^"\']+\.html)["\']\s*,\s*(\{(?:[^{}]|\{[^{}]*\})*\})\s*\)'
-            matches = re.findall(pattern_all_partials_with_params, content, flags=re.DOTALL)
-
-            generic_partials_render_strings = []
-
-            for partial_name_html, params_str in matches:
-                partial_name = partial_name_html.replace('.html', '')
-                params_dict = self._extract_params_from_include(params_str)
-
-                if params_dict:
-                    def ruby_value(v):
-                        if isinstance(v, str):
-                            escaped = v.replace('\\', '\\\\\\\\').replace('"', '\\"')
-                            return f'"{escaped}"'
-                        elif isinstance(v, bool):
-                            return 'true' if v else 'false'
-                        elif v is None:
-                            return 'nil'
-                        else:
-                            return str(v)
-
-                    params_str_ruby = ", ".join(f"{k}: {ruby_value(v)}" for k, v in params_dict.items())
-                    render_str = f"<%= render 'layouts/partials/{partial_name}', {params_str_ruby} %>\n\n"
-                else:
-                    render_str = f"<%= render 'layouts/partials/{partial_name}' %>\n\n"
-
-                generic_partials_render_strings.append(render_str)
-
-                # Remove the matched include statement from content
-                # Use re.escape on params_str to safely remove it
-                pattern_remove = re.escape(f'@@include("partials/{partial_name_html}", {params_str})')
-                content = re.sub(pattern_remove, '', content, flags=re.DOTALL)
-
-            # Append all generic partial renders after page-title render
-            page_title_render_string += "".join(generic_partials_render_strings)
-
-            # --- Determine the main page title for @title ERB variable ---
-            title = title_from_page_title_include or self._extract_title_from_soup_or_data(
-                soup_original) or "Page Title"
-
-            erb_header = f"<% @title = \"{title}\" %>\n\n"
-
-            # --- Convert all other @@include statements (excluding page-title.html) ---
-            content = self._convert_general_includes(content)
-
-            # --- Extract main content ---
-            soup_current = BeautifulSoup(content, 'html.parser')
-            main_content = self._extract_main_content(soup_current, content)
-
-            # --- Convert image paths ---
-            main_content = self._convert_image_paths(main_content)
-
-            # --- Extract script tags ---
-            vite_scripts = self._extract_vite_scripts(soup_original)
-
-            # --- Remove script tags ---
-            main_content = self._remove_script_tags(main_content)
-
-            # --- Compose final ERB output ---
-            erb_output = (
-                    erb_header +
-                    page_title_render_string +
-                    main_content.strip() +
-                    "\n\n<% content_for :javascript do %>\n"
-            )
-
-            for script in vite_scripts:
-                erb_output += f"  <%= vite_javascript_tag '{script}' %>\n"
-            erb_output += "<% end %>\n"
-
-            with open(file, "w", encoding="utf-8") as f:
-                f.write(erb_output)
-
-            Log.success(f"Converted Rails view: {file.relative_to(self.project_views_path)}")
             count += 1
 
-        Log.success(f"\n{count} Rails view files converted successfully.")
+        Log.info(f"{count} files converted in {self.project_views_path}")
 
-    def _extract_all_partials_with_params(self, content):
+    def _format_ruby_value(self, value):
+        """Formats a Python value into a Ruby-compatible string for a hash."""
+        if isinstance(value, str):
+            # Escape backslashes and double quotes, then wrap the result in double quotes.
+            escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+            return f'"{escaped}"'
+        elif isinstance(value, bool):
+            return 'true' if value else 'false'
+        elif value is None:
+            return 'nil'
+        else:
+            return str(value)
+
+    def _extract_params_from_include(self, params_str: str) -> dict:
         """
-        Finds all @@include("partials/partial_name.html", {...}) with params,
-        returns list of tuples: (full_include_string, partial_name, params_dict)
+        Safely parses a JS-object-like string into a Python dictionary
+        using ast.literal_eval for robustness with quotes and data types.
         """
-        results = []
+        if not params_str or not params_str.strip():
+            return {}
 
-        # Regex to find all @@include statements with params JSON (non-greedy, multiline safe)
-        pattern = r'@@include\(\s*["\']\.?\/?partials\/([^"\']+\.html)["\']\s*,\s*(\{(?:[^{}]|\{[^{}]*\})*\})\s*\)'
+        # Prepare the string for safe evaluation
+        eval_str = params_str.strip()
 
-        for match in re.finditer(pattern, content, flags=re.DOTALL):
-            full_include = match.group(0)
-            partial_filename = match.group(1)  # e.g. 'menu.html'
-            params_str = match.group(2)
+        # This regex finds unquoted keys (like `pageTitle:`) and adds double quotes.
+        eval_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', eval_str)
 
-            # Extract partial name without extension
-            partial_name = partial_filename.replace('.html', '')
+        # Convert JS/JSON booleans and null to Python equivalents
+        eval_str = eval_str.replace('true', 'True').replace('false', 'False').replace('null', 'None')
 
-            # Parse params
-            params_dict = self._extract_params_from_include(params_str)
+        # Remove trailing commas, which are invalid in literal_eval
+        eval_str = re.sub(r',\s*([}\]])', r'\1', eval_str)
 
-            results.append((full_include, partial_name, params_dict))
-
-        return results
-
-    def _extract_page_title_include(self, content):
-        """
-        Extract the full @@include(...) string and the JSON params for page-title.html
-        using manual brace counting for multiline and nested braces.
-        Returns (full_include_string, params_str) or (None, None) if not found.
-        """
-        pattern_start = r'@@include\(\s*["\']\.?\/?partials\/page-title\.html["\']\s*,'
-        match_start = re.search(pattern_start, content)
-        if not match_start:
-            return None, None
-
-        start_pos = match_start.end()  # position right after the comma
-        # Skip whitespace to find first '{'
-        while start_pos < len(content) and content[start_pos] not in '{':
-            start_pos += 1
-        if start_pos >= len(content) or content[start_pos] != '{':
-            return None, None
-
-        brace_count = 0
-        end_pos = start_pos
-        while end_pos < len(content):
-            if content[end_pos] == '{':
-                brace_count += 1
-            elif content[end_pos] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    break
-            end_pos += 1
-
-        if brace_count != 0:
-            return None, None
-
-        params_str = content[start_pos:end_pos + 1]
-        # full include string ends at position after the closing brace + 1 for ')'
-        full_include_string = content[match_start.start():end_pos + 2]  # includes final '})'
-
-        return full_include_string, params_str
-
-    def _convert_general_includes(self, content):
-        pattern_general = r'@@include\(\s*["\']\.?\/partials\/(?!page-title\.html)([^"\']+)["\'](?:\s*,\s*(array\(.*?\)|\{.*?\}))?\s*\)'
-
-        def general_replacer(m):
-            partial_name = m.group(1).replace('.html', '')
-            return f"<%= render 'layouts/partials/{partial_name}' %>"
-
-        content = re.sub(pattern_general, general_replacer, content, flags=re.DOTALL)
-        return content
-
-    def _extract_params_from_include(self, params_str):
-        # First, clean string to valid JSON format
-        # Remove newlines inside quoted strings by replacing them with spaces
-
-        # Regex to find multiline strings in quotes and replace newlines with space
-        def replace_newlines_in_quotes(match):
-            s = match.group(0)
-            # Replace newlines and tabs with space, then collapse multiple spaces into one
-            s = s.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-            s = re.sub(r'\s+', ' ', s)
-            return s
-
-        # Apply to all double-quoted strings
-        params_str = re.sub(r'"([^"]*?)"', replace_newlines_in_quotes, params_str)
-
-        # Now do your existing JSON cleanup and parse
         try:
-            json_str_cleaned = params_str.replace("'", '"')
-            json_str_cleaned = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str_cleaned)
-            return json.loads(json_str_cleaned)
-        except json.JSONDecodeError:
-            Log.warning(f"Failed to parse as JSON: {params_str[:50]}...")
-            pass
+            # ast.literal_eval is much safer than eval() and more flexible than json.loads()
+            return ast.literal_eval(eval_str)
+        except (ValueError, SyntaxError) as e:
+            Log.warning(f"Failed to parse parameters: {params_str[:70]}... Error: {e}")
+            return {}
 
-        params_dict = {}
-        param_pattern = re.compile(r"""
-            (?:['"]?(?P<key>[a-zA-Z_][a-zA-Z0-9_]*)['"]?\s*=>\s*)?
-            (?:
-                ['"](?P<sval>(?:\\.|[^'"])*)['"]
-                |
-                (?P<nval>-?\d+(?:\.\d+)?)
-                |
-                (?P<bool>true|false)
-                |
-                (?P<null>null)
+    def _convert_general_includes(self, content: str) -> str:
+        """
+        Finds all @@include statements, parses their path and parameters,
+        and replaces them with a Ruby on Rails <%= render ... %> helper.
+        """
+        # This single regex handles all cases: with/without params, multiline params
+        include_pattern = re.compile(
+            r'@@include\(\s*["\']([^"\']+)["\']\s*(?:,\s*(\{[\s\S]*?\}))?\s*\)',
+            re.DOTALL
+        )
+
+        def replacer(match):
+            path_str = match.group(1)
+            params_str = match.group(2)  # This will be None if there are no params
+
+            # Clean up the path for the render helper
+            # from "./partials/page-title.html" to "partials/page_title"
+            render_path = path_str.strip().replace('./', '').replace('.html', '')
+
+            if not params_str:
+                return f"<%= render '{render_path}' %>"
+
+            params_dict = self._extract_params_from_include(params_str)
+            if not params_dict:
+                # If parsing fails, render without params to avoid breaking
+                return f"<%= render '{render_path}' %>"
+
+            # Convert the Python dict to a Ruby hash string: {key: "value", ...}
+            ruby_params = ", ".join(
+                f"{key}: {self._format_ruby_value(value)}"
+                for key, value in params_dict.items()
             )
-            \s*(?:,\s*|$)
-        """, re.VERBOSE | re.DOTALL)
 
-        for match in param_pattern.finditer(params_str):
-            key = match.group('key')
-            if not key:
-                continue
+            return f"<%= render '{render_path}', {ruby_params} %>"
 
-            if match.group('sval') is not None:
-                value = match.group('sval').replace('\\"', '"').replace("\\'", "'")
-            elif match.group('nval') is not None:
-                value = float(match.group('nval')) if '.' in match.group('nval') else int(match.group('nval'))
-            elif match.group('bool') is not None:
-                value = True if match.group('bool') == 'true' else False
-            elif match.group('null') is not None:
-                value = None
-            else:
-                value = None
-
-            params_dict[key] = value
-
-        if not params_dict:
-            Log.warning(f"Could not extract parameters from: {params_str[:50]}...")
-        return params_dict
+        return include_pattern.sub(replacer, content)
 
     def _extract_title_from_soup_or_data(self, soup):
         if soup.title and soup.title.string:
@@ -329,68 +196,28 @@ class RoRConverter:
     def _extract_main_content(self, soup, original_content_fallback):
         content_div = soup.find(attrs={"data-content": True})
         if content_div:
-            return ''.join(str(c) for c in content_div.contents)
+            return content_div.decode_contents()
 
         if soup.body:
-            return ''.join(str(c) for c in soup.body.contents)
+            return soup.body.decode_contents()
 
         return original_content_fallback
 
     def _remove_script_tags(self, content_html):
         soup = BeautifulSoup(content_html, 'html.parser')
         for script in soup.find_all('script'):
-            script.decompose()
-        return str(soup)
-
-    def _convert_image_paths(self, content_html):
-        soup = BeautifulSoup(content_html, 'html.parser')
-        placeholders = {}
-
-        for i, img_tag in enumerate(soup.find_all('img')):
-            src = img_tag.get('src')
-            if not src:
-                continue
-
-            normalized_image_path = None
-            if src.startswith('assets/images/'):
-                normalized_image_path = src.replace('assets/', '')
-            elif src.startswith('images/'):
-                normalized_image_path = src
-
-            if normalized_image_path:
-                # Escape single quotes inside path just in case (usually not needed)
-                safe_path = normalized_image_path.replace("'", "\\'")
-
-                erb_tag = f'<%= vite_asset_path \'{safe_path}\' %>'
-                placeholder = f"@@ERB_PLACEHOLDER_{i}@@"
-                placeholders[placeholder] = erb_tag
-
-                # Set src attribute to the placeholder (which is safe text)
-                img_tag['src'] = placeholder
-
-        # Serialize to string: placeholders prevent escaping ERB tags
-        html_with_placeholders = str(soup)
-
-        # Replace placeholders with ERB tags (quoted properly)
-        for placeholder, erb_tag in placeholders.items():
-            # Replace the placeholder with the ERB tag surrounded by quotes (HTML attribute safe)
-            html_with_placeholders = html_with_placeholders.replace(
-                placeholder,
-                erb_tag
-            )
-
-        Log.info(f"Image ERB replacement done, ERB tags present? {'<%=' in html_with_placeholders}")
-
-        return html_with_placeholders
+            src = script.get('src')
+            if src and not src.startswith('http'):
+                script.decompose()
+        return soup.decode(formatter=None)
 
     def _extract_vite_scripts(self, soup):
         vite_scripts = []
         for script in soup.find_all('script'):
             src = script.get('src')
-            if not src:
-                continue
-            normalized_src = src.lstrip('/').replace('assets/', '')
-            vite_scripts.append(normalized_src)
+            if src and not src.startswith('http'):
+                normalized_src = src.lstrip('/').replace('assets/', '')
+                vite_scripts.append(normalized_src)
         return vite_scripts
 
     def _create_controller_file(self, path, controller_name, actions):
@@ -408,7 +235,7 @@ class RoRConverter:
 
         controller_code = f"""class {class_name} < ApplicationController
     {methods.strip()}
-    end
+end
     """
 
         with open(path, "w", encoding="utf-8") as f:
@@ -453,10 +280,10 @@ class RoRConverter:
                 controller_file_path = os.path.join(self.project_controllers_path, controller_file_name)
                 self._create_controller_file(controller_file_path, controller_name, actions)
                 controllers_actions[controller_name] = actions
-                Log.success(f"Created: {controller_file_path}")
+                Log.created(controller_file_path)
 
         self._create_routes(controllers_actions)
-        Log.success("Controller and routes generation completed.")
+        Log.info("Controller and routes generation completed")
 
     def _create_routes(self, controllers_actions):
         """
@@ -484,4 +311,201 @@ class RoRConverter:
             for line in route_lines:
                 f.write(line + "\n")
 
-        Log.success(f"Routes appended to {self.project_routes_path}")
+        Log.updated(f"Routes appended to {self.project_routes_path}")
+
+    def _copy_partials(self):
+        self.project_partials_path.mkdir(parents=True, exist_ok=True)
+        partials_source = self.source_path / "partials"
+
+        if partials_source.exists() and partials_source.is_dir():
+            change_extension_and_copy(ROR_EXTENSION, partials_source, self.project_partials_path)
+
+    def _prepare_content_placeholders(self, soup_element):
+        """
+        Finds all images and relevant links within the soup element,
+        replaces their attributes with placeholders, and returns dictionaries
+        mapping the placeholders to their final ERB tags.
+        """
+        link_placeholders = {}
+        image_placeholders = {}
+
+        # Prepare Link Placeholders
+        link_pattern = re.compile(r'^([a-zA-Z0-9]+)-(.+)\.html$')
+        for i, a_tag in enumerate(soup_element.find_all('a', href=True)):
+            href = a_tag.get('href')
+            if not isinstance(href, str): continue
+
+            match = link_pattern.match(href.strip())
+            if match:
+                controller = match.group(1)
+                action = match.group(2).replace('-', '_')
+                erb_tag = f"<%= url_for(:controller => '{controller}', :action => '{action}') %>"
+                placeholder = f"__URL_FOR_PLACEHOLDER_{i}__"
+
+                # The key is the full attribute string to be replaced later
+                link_placeholders[f'href="{placeholder}"'] = f"href='{erb_tag}'"
+                a_tag['href'] = placeholder
+
+        # Prepare Image Placeholders
+        for i, img_tag in enumerate(soup_element.find_all('img', src=True)):
+            src = img_tag.get('src')
+            if not src: continue
+
+            normalized_image_path = None
+            if src.startswith(('assets/images/', 'images/')):
+                normalized_image_path = src.replace('assets/', '')
+
+            if normalized_image_path:
+                safe_path = normalized_image_path.replace("'", "\\'")
+                erb_tag = f'<%= vite_asset_path \'{safe_path}\' %>'
+                placeholder = f"@@ERB_IMG_PLACEHOLDER_{i}@@"
+
+                # Here the placeholder itself is the key
+                image_placeholders[placeholder] = erb_tag
+                img_tag['src'] = placeholder  # Modify soup in place
+
+        return link_placeholders, image_placeholders
+
+    def _process_page_file(self, file_path):
+        """
+        Applies the full conversion process for a main page file, correctly
+        extracting the title from various meta-title includes.
+        """
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 1. Surgically extract the title from various meta-title includes.
+        title = "Page Title"  # Default title
+
+        # MODIFIED: This regex now finds any partial include with 'meta-title' or 'title-meta' in its name.
+        title_meta_pattern = re.compile(
+            r'@@include\(\s*["\']\./partials/([^"\']*?meta-title[^"\']*?|[^"\']*?title-meta[^"\']*?)\.html["\']\s*,\s*(\{[\s\S]*?\})\s*\)',
+            re.DOTALL
+        )
+        match = title_meta_pattern.search(content)
+        if match:
+            params_str = match.group(2)  # Parameters are now in group 2
+            params_dict = self._extract_params_from_include(params_str)
+
+            # MODIFIED: Check for 'pageTitle' as well as 'title'.
+            if 'title' in params_dict:
+                title = params_dict['title']
+            elif 'pageTitle' in params_dict:
+                title = params_dict['pageTitle']
+
+            # Remove the include so it's not processed again
+            content = title_meta_pattern.sub('', content, count=1)
+
+        erb_header = f"<% @title = \"{title}\" %>\n\n"
+
+        # 2. Perform all other conversions on the remaining content
+        content = self._convert_general_includes(content)
+        soup = BeautifulSoup(content, 'html.parser')
+
+        # 3. Read info and modify the soup object
+        vite_scripts = self._extract_vite_scripts(soup)
+        main_content_element = self._extract_main_content(soup, content)
+        if isinstance(main_content_element, str):
+            main_content_element = BeautifulSoup(main_content_element, 'html.parser')
+
+        link_placeholders, image_placeholders = self._prepare_content_placeholders(main_content_element)
+
+        for script in main_content_element.find_all('script'):
+            src = script.get('src')
+            if src and not src.startswith('http'):
+                script.decompose()
+
+        # 4. Serialize the modified soup back to a string
+        content_with_placeholders = main_content_element.decode(formatter=None)
+
+        # 5. Perform all ERB replacements on the clean string
+        final_content = content_with_placeholders
+        for placeholder_attr, final_attr in link_placeholders.items():
+            final_content = final_content.replace(placeholder_attr, final_attr)
+        for placeholder, erb_tag in image_placeholders.items():
+            final_content = final_content.replace(f'src="{placeholder}"', f'src="{erb_tag}"')
+
+        # 6. Assemble the final file content
+        erb_output = (
+                erb_header +
+                final_content.strip() +
+                "\n\n<% content_for :javascript do %>\n"
+        )
+        for script in vite_scripts:
+            erb_output += f"  <%= vite_javascript_tag '{script}' %>\n"
+        erb_output += "<% end %>\n"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(erb_output)
+        Log.converted(str(file_path))
+
+    def _process_partial_file(self, file_path):
+        """
+        Applies a lightweight conversion process for a partial file, following the
+        "Parse Once" rule.
+        """
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Perform initial text-only substitutions
+        content = self._convert_general_includes(content)
+
+        # Parse the HTML ONCE.
+        soup = BeautifulSoup(content, 'html.parser')
+
+        # Read info and modify the soup object
+        vite_scripts = self._extract_vite_scripts(soup)
+        link_placeholders, image_placeholders = self._prepare_content_placeholders(soup)
+
+        # Safely remove script tags from the soup object
+        for script in soup.find_all('script'):
+            src = script.get('src')
+            if src and not src.startswith('http'):
+                script.decompose()
+
+        # Serialize the modified soup back to a string
+        content_with_placeholders = soup.decode(formatter=None)
+
+        # Perform all ERB replacements on the clean string
+        final_content = content_with_placeholders
+        for placeholder_attr, final_attr in link_placeholders.items():
+            final_content = final_content.replace(placeholder_attr, final_attr)
+        for placeholder, erb_tag in image_placeholders.items():
+            final_content = final_content.replace(f'src="{placeholder}"', f'src="{erb_tag}"')
+
+        # Assemble the final file content
+        if vite_scripts:
+            script_block = "\n"
+            for script in vite_scripts:
+                script_block += f"\n<%= vite_javascript_tag '{script}' %>"
+            final_content += script_block
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(final_content.strip())
+
+        Log.converted(str(file_path))
+
+    def _replace_partial_variables(self):
+        """
+        Replace @@<var> with short echo '<?= $<var> ?>' across all PHP files.
+        Skips control/directive tokens like @@if and @@include.
+        """
+        count = 0
+        pattern = re.compile(r'@@(?!if\b|include\b)([A-Za-z_]\w*)\b')
+
+        for file in self.project_partials_path.rglob(f"*{ROR_EXTENSION}"):
+            if not file.is_file():
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+
+            new_content = pattern.sub(r'<%= \1 %>', content)
+            if new_content != content:
+                file.write_text(new_content, encoding="utf-8")
+                Log.updated(str(file))
+                count += 1
+
+        if count:
+            Log.info(f"{count} files updated in {self.project_partials_path}")

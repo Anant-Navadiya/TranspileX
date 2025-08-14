@@ -6,20 +6,24 @@ from pathlib import Path
 from transpilex.config.base import NODE_ASSETS_FOLDER, NODE_DESTINATION_FOLDER, NODE_EXTENSION, NODE_GULP_ASSETS_PATH, \
     FILENAME_PRIORITY, TITLE_KEYS
 from transpilex.helpers import change_extension_and_copy, copy_assets
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.package_json import sync_package_json
+from transpilex.helpers.validations import folder_exists
+
 
 class NodeConverter:
-    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
+                 plugins_config: bool = True):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(NODE_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
+        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / project_name
         self.project_assets_path = self.project_root / NODE_ASSETS_FOLDER
@@ -31,6 +35,15 @@ class NodeConverter:
         self.create_project()
 
     def create_project(self):
+
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
         Log.project_start(self.project_name)
 
         change_extension_and_copy(NODE_EXTENSION, self.source_path, self.project_views_path)
@@ -46,7 +59,9 @@ class NodeConverter:
         copy_assets(self.assets_path, self.project_assets_path)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, NODE_GULP_ASSETS_PATH)
+            add_gulpfile(self.project_root, NODE_GULP_ASSETS_PATH, self.plugins_config)
+
+        if self.include_gulp and self.plugins_config:
             add_plugins_file(self.source_path, self.project_root)
 
         sync_package_json(self.source_path, self.project_root,

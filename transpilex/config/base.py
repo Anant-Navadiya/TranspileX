@@ -75,10 +75,28 @@ FLASK_ASSETS_FOLDER = 'apps/static'
 FLASK_EXTENSION = '.html'
 FLASK_GULP_ASSETS_PATH = './apps/static'
 
-# Ror
+# RoR
+ROR_PROJECT_CREATION_COMMAND = ['git', 'clone', 'https://github.com/transpilex/ror-boilerplate.git', '.']
 ROR_DESTINATION_FOLDER = 'ror'
 ROR_ASSETS_FOLDER = 'frontend'
 ROR_EXTENSION = '.html.erb'
+ROR_ASSETS_PRESERVE = ['entrypoints']
+
+# Spring Boot
+SPRING_BOOT_PROJECT_CREATION_URL = 'https://start.spring.io/starter.zip'
+SPRING_BOOT_DESTINATION_FOLDER = 'spring'
+SPRING_BOOT_ASSETS_FOLDER = 'src/main/resources/static'
+SPRING_BOOT_EXTENSION = '.html'
+SPRING_BOOT_GULP_ASSETS_PATH = './src/main/resources/static'
+SPRING_BOOT_PROJECT_PARAMS = {
+    "type": "maven-project",
+    "language": "java",
+    "bootVersion": "3.5.3",
+    "groupId": "com",
+    "packaging": "jar",
+    "javaVersion": "24",
+    "dependencies": "web,thymeleaf,devtools",
+}
 
 # MVC
 MVC_PROJECT_CREATION_COMMAND = 'dotnet new mvc -n'

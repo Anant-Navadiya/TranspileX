@@ -5,24 +5,27 @@ from pathlib import Path
 from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.copy_assets import copy_assets
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.package_json import update_package_json
 
 from transpilex.config.base import PHP_SRC_FOLDER, PHP_EXTENSION, PHP_ASSETS_FOLDER, PHP_GULP_ASSETS_PATH, \
     PHP_DESTINATION_FOLDER
+from transpilex.helpers.validations import folder_exists
 
 
 class PHPConverter:
 
-    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
+                 plugins_config: bool = True):
 
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(PHP_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
+        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / project_name
         self.project_src_path = self.project_root / PHP_SRC_FOLDER
@@ -35,6 +38,14 @@ class PHPConverter:
 
     def create_project(self):
 
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
         Log.project_start(self.project_name)
 
         change_extension_and_copy(PHP_EXTENSION, self.source_path, self.project_src_path)
@@ -46,9 +57,11 @@ class PHPConverter:
         copy_assets(self.assets_path, self.project_assets_path)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, PHP_GULP_ASSETS_PATH)
-            add_plugins_file(self.source_path, self.project_root)
+            add_gulpfile(self.project_root, PHP_GULP_ASSETS_PATH, self.plugins_config)
             update_package_json(self.source_path, self.project_root, self.project_name)
+
+        if self.include_gulp and self.plugins_config:
+            add_plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 
@@ -57,13 +70,13 @@ class PHPConverter:
         count = 0
 
         # Iterate only destination files (*.php)
-        for dest_file in self.project_src_path.rglob(f"*{PHP_EXTENSION}"):
-            if not dest_file.is_file():
+        for file in self.project_src_path.rglob(f"*{PHP_EXTENSION}"):
+            if not file.is_file():
                 continue
 
             # Read as UTF-8; silently skip if binary/non-UTF8
             try:
-                with open(dest_file, "r", encoding="utf-8") as f:
+                with open(file, "r", encoding="utf-8") as f:
                     content = f.read()
             except (UnicodeDecodeError, OSError):
                 continue
@@ -73,7 +86,6 @@ class PHPConverter:
             # Only work if includes or .html links are present
             if "@@include" not in content and ".html" not in content:
                 continue
-
 
             def to_php_path(path: str) -> str:
                 return path[:-5] + PHP_EXTENSION if path.endswith(".html") else path + PHP_EXTENSION
@@ -105,7 +117,7 @@ class PHPConverter:
                     php_path = to_php_path(path)
                     return f"<?php {php_vars}include('{php_path}'); ?>"
                 except json.JSONDecodeError as e:
-                    Log.warning(f"[JSON Error] in file {dest_file.name}: {e}")
+                    Log.warning(f"[JSON Error] in file {file.name}: {e}")
                     return match.group(0)
 
             # Replace includes WITHOUT parameters (allow missing .html)
@@ -131,14 +143,14 @@ class PHPConverter:
 
             if content != original_content:
                 try:
-                    with open(dest_file, "w", encoding="utf-8") as f:
+                    with open(file, "w", encoding="utf-8") as f:
                         f.write(content)
-                    Log.converted(str(dest_file))
+                    Log.converted(str(file))
                     count += 1
                 except Exception as e:
-                    Log.error(f"Failed to write {dest_file}: {e}")
+                    Log.error(f"Failed to write {file}: {e}")
             else:
-                Log.warning(f"File was skipped (no patterns matched): {dest_file}")
+                Log.warning(f"File was skipped (no patterns matched): {file}")
 
         Log.info(f"{count} files converted in {self.project_src_path}")
 

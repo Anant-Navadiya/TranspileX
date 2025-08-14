@@ -3,7 +3,7 @@ from pathlib import Path
 from transpilex.helpers.logs import Log
 
 
-def add_gulpfile(project_root: Path, asset_path: str):
+def add_gulpfile(project_root: Path, asset_path: str, plugins_config: bool = True):
     """
     Creates a gulpfile.js at the root of the given PHP project.
 
@@ -14,6 +14,85 @@ def add_gulpfile(project_root: Path, asset_path: str):
     - project_root: Path object pointing to the PHP project root (e.g., 'php/project_name')
     - asset_path: Dictionary with keys 'css', 'scss', 'vendor' (Note: no longer used by this template)
     """
+
+    plugins_import = 'const pluginFile = require("./plugins.config"); // Import the plugins list' if plugins_config else ''
+
+    plugins_fn = """
+    // Copying Third Party Plugins Assets
+    const plugins = function () {
+        const out = paths.baseDistAssets + "plugins/";
+
+        pluginFile.forEach(({name, vendorsJS, vendorCSS, vendorFonts, assets, fonts, font, media, img, webfonts}) => {
+
+            const handleError = (label, files) => (err) => {
+                const shortMsg = err.message.split('\\n')[0];
+                console.error(`\\n${label} - ${shortMsg}`);
+                throw new Error(` ${label} failed`);
+            };
+
+            if (vendorsJS) {
+                src(vendorsJS)
+                    .on('error', handleError('vendorsJS'))
+                    .pipe(concat("vendors.min.js"))
+                    .pipe(dest(paths.baseDistAssets + "js/"));
+            }
+
+            if (vendorCSS) {
+                src(vendorCSS)
+                    .pipe(concat("vendors.min.css"))
+                    .on('error', handleError('vendorCSS'))
+                    .pipe(dest(paths.baseDistAssets + "css/"));
+            }
+
+            if (vendorFonts) {
+                src(vendorFonts)
+                    .on('error', handleError('vendorFonts'))
+                    .pipe(dest(paths.baseDistAssets + "css/fonts/"));
+            }
+
+            if (assets) {
+                src(assets)
+                    .on('error', handleError('assets'))
+                    .pipe(dest(`${out}${name}/`));
+            }
+
+            if (img) {
+                src(img)
+                    .on('error', handleError('img'))
+                    .pipe(dest(`${out}${name}/img/`));
+            }
+
+            if (media) {
+                src(media)
+                    .on('error', handleError('media'))
+                    .pipe(dest(`${out}${name}/`));
+            }
+
+            if (fonts) {
+                src(fonts)
+                    .on('error', handleError('fonts'))
+                    .pipe(dest(`${out}${name}/fonts/`));
+            }
+
+            if (font) {
+                src(font)
+                    .on('error', handleError('font'))
+                    .pipe(dest(`${out}${name}/font/`));
+            }
+
+            if (webfonts) {
+                src(webfonts)
+                    .on('error', handleError('webfonts'))
+                    .pipe(dest(`${out}${name}/webfonts/`));
+            }
+        });
+
+        return Promise.resolve();
+    };
+    """.strip() if plugins_config else ''
+
+    plugins_task = "plugins," if plugins_config else ""
+
     gulpfile_template = f"""
 const {{series, src, dest, parallel, watch}} = require("gulp");
 
@@ -25,85 +104,14 @@ const rtlcss = require("gulp-rtlcss");
 const sourcemaps = require("gulp-sourcemaps");
 const sass = require("gulp-sass")(require("sass"));
 
-const pluginFile = require("./plugins.config"); // Import the plugins list
+{plugins_import}
 
 const paths = {{
     baseDistAssets: "{asset_path}",  // build assets directory
     baseSrcAssets: "{asset_path}",   // source assets directory
 }};
 
-// Copying Third Party Plugins Assets
-const plugins = function () {{
-    const out = paths.baseDistAssets + "plugins/";
-
-    pluginFile.forEach(({{name, vendorsJS, vendorCSS, vendorFonts, assets, fonts, font, media, img, webfonts}}) => {{
-
-        const handleError = (label, files) => (err) => {{
-            const shortMsg = err.message.split('\\n')[0];
-            console.error(`\\n${{label}} - ${{shortMsg}}`);
-            throw new Error(` ${{label}} failed`);
-        }};
-
-        if (vendorsJS) {{
-            src(vendorsJS)
-                .on('error', handleError('vendorsJS'))
-                .pipe(concat("vendors.min.js"))
-                .pipe(dest(paths.baseDistAssets + "js/"));
-        }}
-
-        if (vendorCSS) {{
-            src(vendorCSS)
-                .pipe(concat("vendors.min.css"))
-                .on('error', handleError('vendorCSS'))
-                .pipe(dest(paths.baseDistAssets + "css/"));
-        }}
-
-        if (vendorFonts) {{
-            src(vendorFonts)
-                .on('error', handleError('vendorFonts'))
-                .pipe(dest(paths.baseDistAssets + "css/fonts/"));
-        }}
-
-        if (assets) {{
-            src(assets)
-                .on('error', handleError('assets'))
-                .pipe(dest(`${{out}}${{name}}/`));
-        }}
-
-        if (img) {{
-            src(img)
-                .on('error', handleError('img'))
-                .pipe(dest(`${{out}}${{name}}/img/`));
-        }}
-
-        if (media) {{
-            src(media)
-                .on('error', handleError('media'))
-                .pipe(dest(`${{out}}${{name}}/`));
-        }}
-
-
-        if (fonts) {{
-            src(fonts)
-                .on('error', handleError('fonts'))
-                .pipe(dest(`${{out}}${{name}}/fonts/`));
-        }}
-
-        if (font) {{
-            src(font)
-                .on('error', handleError('font'))
-                .pipe(dest(`${{out}}${{name}}/font/`));
-        }}
-
-        if (webfonts) {{
-            src(webfonts)
-                .on('error', handleError('webfonts'))
-                .pipe(dest(`${{out}}${{name}}/webfonts/`));
-        }}
-    }});
-
-    return Promise.resolve();
-}};
+{plugins_fn}
 
 const scss = function () {{
     const out = paths.baseDistAssets + "css/";
@@ -150,27 +158,27 @@ function watchFiles() {{
 
 // Production Tasks
 exports.default = series(
-    plugins,
+    {plugins_task}
     parallel(scss),
     parallel(watchFiles)
 );
 
 // Build Tasks
 exports.build = series(
-    plugins,
+    {plugins_task}
     parallel(scss)
 );
 
 // RTL Tasks
 exports.rtl = series(
-    plugins,
+    {plugins_task}
     parallel(rtl),
     parallel(watchFiles)
 );
 
 // RTL Build Tasks
 exports.rtlBuild = series(
-    plugins,
+    {plugins_task}
     parallel(rtl),
 );
 """.strip()

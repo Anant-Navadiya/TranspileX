@@ -6,7 +6,7 @@ from pathlib import Path
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, MVC_DESTINATION_FOLDER, MVC_ASSETS_FOLDER, \
     MVC_PROJECT_CREATION_COMMAND, MVC_GULP_ASSETS_PATH
 from transpilex.helpers import copy_assets
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.logs import Log
 from transpilex.helpers.package_json import update_package_json
 

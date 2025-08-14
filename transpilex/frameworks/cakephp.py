@@ -11,21 +11,24 @@ from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.change_extension import change_extension_and_copy
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.copy_assets import copy_assets
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.logs import Log
 from transpilex.helpers.move_files import move_files
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.package_json import update_package_json
+from transpilex.helpers.validations import folder_exists
 
 
 class CakePHPConverter:
-    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
+                 plugins_config: bool = True):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(CAKEPHP_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
+        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / CAKEPHP_ASSETS_FOLDER
@@ -40,6 +43,14 @@ class CakePHPConverter:
         self.create_project()
 
     def create_project(self):
+
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
 
         Log.project_start(self.project_name)
 
@@ -56,7 +67,7 @@ class CakePHPConverter:
 
         change_extension_and_copy(CAKEPHP_EXTENSION, self.source_path, self.project_pages_path)
 
-        self._convert(self.project_pages_path)
+        self._convert()
 
         if self.project_partials_path.exists() and self.project_partials_path.is_dir():
             move_files(self.project_partials_path, self.project_element_path)
@@ -74,16 +85,18 @@ class CakePHPConverter:
         copy_assets(self.assets_path, self.project_assets_path, preserve=CAKEPHP_ASSETS_PRESERVE)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, CAKEPHP_GULP_ASSETS_PATH)
-            add_plugins_file(self.source_path, self.project_root)
+            add_gulpfile(self.project_root, CAKEPHP_GULP_ASSETS_PATH, self.plugins_config)
             update_package_json(self.source_path, self.project_root, self.project_name)
+
+        if self.include_gulp and self.plugins_config:
+            add_plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 
-    def _convert(self, directory: Path):
+    def _convert(self):
         count = 0
 
-        for file in directory.rglob("*.php"):
+        for file in self.project_pages_path.rglob("*.php"):
             content = file.read_text(encoding="utf-8")
             original_content = content
 
@@ -141,7 +154,7 @@ class CakePHPConverter:
                 Log.converted(str(file))
                 count += 1
 
-        Log.info(f"{count} files converted in {directory}")
+        Log.info(f"{count} files converted in {self.project_pages_path}")
 
     def _add_root_method_to_app_controller(self):
 
@@ -155,17 +168,17 @@ class CakePHPConverter:
             return
 
         method_code = """
-    public function root($path): Response
-    {
-        try {
-            return $this->render($path);
-        } catch (MissingTemplateException $exception) {
-            if (Configure::read('debug')) {
-                throw $exception;
-            }
-            throw new NotFoundException();
+public function root($path): Response
+{
+    try {
+        return $this->render($path);
+    } catch (MissingTemplateException $exception) {
+        if (Configure::read('debug')) {
+            throw $exception;
         }
+        throw new NotFoundException();
     }
+}
     """
         updated = re.sub(r"^\}\s*$", method_code + "\n}", content, flags=re.MULTILINE)
         self.project_pages_controller_path.write_text(updated, encoding="utf-8")

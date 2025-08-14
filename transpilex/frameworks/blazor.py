@@ -10,7 +10,7 @@ from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, BLAZOR_ASSETS_FOLDE
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.change_extension import change_extension
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
-from transpilex.helpers.add_gulpfile import add_gulpfile
+from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.logs import Log
 from transpilex.helpers.replace_html_links import replace_html_links

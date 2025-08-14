@@ -47,3 +47,25 @@ def copy_assets(source_path: Path, destination_path: Path, preserve=None, exclud
         else:
             shutil.copy2(item, target)
         Log.copied(f"{item} → {target}")
+
+
+def copy_assets_in_public(source_assets_path: Path, destination_path: Path,
+                          candidates=None):
+    if candidates is None:
+        candidates = ["images", "img", "media", "data", "json"]
+
+    destination_path.mkdir(parents=True, exist_ok=True)
+
+    copied = set()
+
+    for name in candidates:
+        src = source_assets_path / name
+        if src.exists() and src.is_dir():
+            dest = destination_path / name
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(src, dest)
+            copied.add(name)
+            Log.copied(f"{src} → {dest}")
+
+    return copied

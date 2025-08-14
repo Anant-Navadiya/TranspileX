@@ -1,30 +1,36 @@
 import re
-import json
+import ast
 import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
 from cookiecutter.main import cookiecutter
-import sys
 
 from transpilex.config.base import DJANGO_DESTINATION_FOLDER, DJANGO_ASSETS_FOLDER, DJANGO_COOKIECUTTER_REPO, \
     DJANGO_EXTENSION
 from transpilex.helpers import copy_assets, change_extension_and_copy
+from transpilex.helpers.add_plugins_file import add_plugins_file
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.logs import Log
+from transpilex.helpers.move_files import move_files
+from transpilex.helpers.package_json import sync_package_json
+from transpilex.helpers.validations import folder_exists
 
 
 class DjangoConverter:
     def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
-                 auth: bool = False):
+                 auth: bool = False, plugins_config: bool = True):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(DJANGO_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
+        self.plugins_config = plugins_config
 
         self.project_root = Path(self.destination_path / project_name)
         self.project_assets_path = Path(self.project_root / self.project_name / DJANGO_ASSETS_FOLDER)
         self.project_pages_path = Path(self.project_root / self.project_name / "templates" / "pages")
+        self.project_partials_path = Path(self.project_root / self.project_name / "templates" / "partials")
+        self.project_auth_path = Path(self.project_root / self.project_name / "templates" / "account")
 
         self.auth_required = auth
 
@@ -32,18 +38,27 @@ class DjangoConverter:
 
     def create_project(self):
 
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
         Log.project_start(self.project_name)
 
         try:
-            # self.project_root.mkdir(parents=True, exist_ok=True)
 
             cookiecutter(
                 DJANGO_COOKIECUTTER_REPO,
                 output_dir=str(self.project_root.parent),
                 no_input=True,
                 extra_context={'project_name': self.project_name,
-                               'frontend_pipeline': 'Gulp' if self.include_gulp else 'None', 'username_type': 'email',
-                               'open_source_license': 'Not open source', 'auth': 'y' if self.auth_required else 'n'},
+                               'frontend_pipeline': 'Gulp' if self.include_gulp else 'None',
+                               'plugins_config': 'y' if self.plugins_config else 'n', 'username_type': 'email',
+                               'open_source_license': 'Not open source', 'auth': 'y' if self.auth_required else 'n'
+                               },
             )
 
             Log.success("Django project created successfully")
@@ -56,429 +71,248 @@ class DjangoConverter:
 
         change_extension_and_copy(DJANGO_EXTENSION, self.source_path, self.project_pages_path)
 
-        convert_to_django_templates(self.project_pages_path)
+        self._convert()
+
+        partials_source = self.project_pages_path / "partials"
+
+        if partials_source.exists() and partials_source.is_dir():
+            self.project_partials_path.mkdir(parents=True, exist_ok=True)
+            move_files(partials_source, self.project_partials_path)
+
+        self._replace_partial_variables()
+
+        if not self.auth_required:
+            empty_folder_contents(self.project_auth_path)
 
         copy_assets(self.assets_path, self.project_assets_path)
 
+        sync_package_json(self.source_path, self.project_root, ignore_gulp=not self.include_gulp)
+
+        if self.include_gulp and self.plugins_config:
+            add_plugins_file(self.source_path, self.project_root)
+
         Log.project_end(self.project_name, str(self.project_root))
 
+    def _convert(self):
+        """
+        Converts HTML files to Django templates using a generic and robust
+        approach for all @@include directives.
+        """
+        count = 0
+        for file in self.project_pages_path.rglob("*.html"):
+            with open(file, "r", encoding="utf-8") as f:
+                content = f.read()
 
-def extract_json_from_include(json_str):
-    try:
-        json_text = json_str.replace("'", '"')
-        return json.loads(json_text)
-    except Exception:
-        return None  # None means keep original
+            # Step 1: Handle the special case for the main page title.
+            title_meta_pattern = re.compile(
+                r'@@include\(\s*[\'"]\.\/partials\/(title-meta|app-meta-title)\.html[\'"]\s*,\s*(\{.*?\})\s*\)',
+                re.DOTALL,
+            )
+            title_meta_match = title_meta_pattern.search(content)
 
+            layout_title = "Untitled"
+            if title_meta_match:
+                meta_data_str = title_meta_match.group(2)
+                meta_data = self._extract_data_from_include(meta_data_str)
+                layout_title = meta_data.get("title", meta_data.get("pageTitle", "Untitled")).strip()
+                content = title_meta_pattern.sub("", content, count=1)
 
-def format_django_include_dynamic(context_dict):
-    parts = []
-    for key, value in context_dict.items():
-        if isinstance(value, str):
-            val = f"'{value}'"
-        elif isinstance(value, (int, float, bool)):
-            val = str(value).lower() if isinstance(value, bool) else str(value)
-        elif value is None:
-            val = "None"
-        else:
-            continue
-        parts.append(f"{key}={val}")
-    return f"{{% include 'partials/page-title.html' with {' '.join(parts)} %}}"
+            # Step 2: Generically convert ALL other @@include directives.
+            generic_include_pattern = re.compile(
+                r'@@include\(\s*[\'"](.+?)[\'"]\s*(?:,\s*(\{.*?\})\s*)?\)', re.DOTALL
+            )
+            content = generic_include_pattern.sub(self._generic_include_replacer, content)
 
+            # Step 3: Clean static paths and internal .html links.
+            # This must happen BEFORE parsing with BeautifulSoup to handle all paths correctly.
+            content_with_static_paths = self._clean_static_paths(content)
+            final_content = self._replace_html_links_with_django_urls(content_with_static_paths)
 
-def find_balanced_json(text, start_index):
-    """Extracts a balanced JSON block starting from the given index."""
-    brace_count = 0
-    end_index = start_index
-    while end_index < len(text):
-        char = text[end_index]
-        if char == '{':
-            brace_count += 1
-        elif char == '}':
-            brace_count -= 1
-            if brace_count == 0:
-                return text[start_index:end_index + 1], end_index + 1
-        end_index += 1
-    return None, start_index
+            # Step 4: Determine if the file is a full layout and wrap it with a base template.
+            soup = BeautifulSoup(final_content, "html.parser")
+            is_layout = bool(soup.find("body") or soup.find(attrs={"data-content": True}))
 
+            if is_layout:
+                soup_for_extraction = BeautifulSoup(final_content, "html.parser")
 
-def replace_page_title_include(content):
-    pattern = r'@@include\(\s*[\'"](?:\.\/)?partials/page-title\.html[\'"]\s*,\s*'
+                head_tag = soup_for_extraction.find("head")
+                links_html = "\n".join(str(tag) for tag in head_tag.find_all("link")) if head_tag else ""
 
-    result = []
-    index = 0
+                # Helper to identify the special year script
+                def is_year_script(tag):
+                    return tag.name == 'script' and not tag.has_attr('src') and 'getFullYear' in (tag.string or '')
 
-    for match in re.finditer(pattern, content):
-        result.append(content[index:match.start()])
-        json_start = match.end()
-        json_str, next_index = find_balanced_json(content, json_start)
+                # Collect all scripts EXCEPT the year script
+                scripts_to_move = [
+                    str(s) for s in soup_for_extraction.find_all("script") if not is_year_script(s)
+                ]
+                scripts_html = "\n".join(scripts_to_move)
 
-        if json_str:
-            try:
-                data = json.loads(json_str.replace("'", '"'))
-                replacement = format_django_include_dynamic(data)
-                result.append(replacement)
-            except Exception as e:
-                print(f"⚠️ Failed to parse JSON in page-title include: {e}")
-                result.append(content[match.start():next_index])
-        else:
-            print("⚠️ Could not find balanced JSON block.")
-            result.append(content[match.start():json_start])
+                # CRUCIAL: Remove the moved scripts from the soup before extracting content
+                for s in soup_for_extraction.find_all("script"):
+                    if not is_year_script(s):
+                        s.decompose()
 
-        index = next_index
+                # Determine the base layout and extract the main content block
+                template_name = "vertical.html"  # Default
+                content_section = ""
 
-    result.append(content[index:])
-    return ''.join(result)
+                content_div = soup_for_extraction.find(attrs={"data-content": True})
 
+                if content_div:
+                    # Content is inside a specific div, use vertical or app layout
+                    content_section = content_div.decode_contents().strip()
+                    template_name = 'vertical.html'
 
-def clean_static_paths(html):
-    def replacer(match):
-        attr = match.group(1)
-        path = match.group(2)
-        normalized = re.sub(r'^(\.*/)*assets/', '', path)
-        return f'{attr}="{{% static \'{normalized}\' %}}"'
+                elif soup_for_extraction.body:
+                    # Content is the entire body, use the base layout
+                    content_section = soup_for_extraction.body.decode_contents().strip()
+                    template_name = "base.html"
 
-    return re.sub(r'\b(href|src)\s*=\s*["\'](?:\./|\.\./)*assets/([^"\']+)["\']', replacer, html)
+                # Rebuild the file with Django template inheritance
+                django_template = f"""{{% extends 'layouts/{template_name}' %}}
+    {{% load static i18n %}}
 
+    {{% block title %}}{layout_title}{{% endblock title %}}
 
-def replace_html_links_with_django_urls(html_content):
-    """
-    Replaces direct .html links in anchor tags (<a>) with Django {% url %} tags.
-    Handles 'index.html' specifically to map to the root URL '/'.
-    Example: <a href="dashboard-clinic.html"> -> <a href="{% url 'pages:dynamic_pages' template_name='dashboard-clinic' %}">
-    Example: <a href="index.html"> -> <a href="/">
-    """
-    # Regex to find href attributes in <a> tags that end with .html
-    # Group 1: everything before the actual path (e.g., <a ... href=" )
-    # Group 2: the .html file path (e.g., dashboard-clinic.html, ../folder/page.html)
-    # Group 3: everything after the path until the closing '>' of the <a> tag
-    pattern = r'(<a\s+[^>]*?href\s*=\s*["\'])([^"\'#]+\.html)(["\'][^>]*?>)'
+    {{% block styles %}}
+    {links_html}
+    {{% endblock styles %}}
 
-    def replacer(match):
-        pre_path = match.group(1)  # e.g., <a ... href="
-        file_path_full = match.group(2)  # e.g., dashboard-clinic.html or ../folder/page.html
-        post_path = match.group(3)  # e.g., " ... >
+    {{% block content %}}
+    {content_section}
+    {{% endblock content %}}
 
-        # Extract the base filename without extension
-        # Path() handles relative paths and extracts the clean stem (filename without extension)
-        template_name = Path(file_path_full).stem
-
-        # Special case for 'index.html'
-        if template_name == 'index':
-            django_url_tag = "/"
-        else:
-            # Construct the new Django URL tag for other pages
-            django_url_tag = f"{{% url 'pages:dynamic_pages' template_name='{template_name}' %}}"
-
-        # Reconstruct the anchor tag with the new href
-        return f"{pre_path}{django_url_tag}{post_path}"
-
-    return re.sub(pattern, replacer, html_content)
-
-
-def convert_to_django_templates(folder):
-    base_path = Path(folder)
-    count = 0
-
-    for file in base_path.rglob("*.html"):
-        print(f"Processing: {file.relative_to(base_path)}")
-        with open(file, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Replace page-title includes
-        content = replace_page_title_include(content)
-
-        # Extract layout title from title-meta
-        title_meta_match = re.search(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', content)
-        layout_title = "Untitled"
-        if title_meta_match:
-            meta_data = extract_json_from_include(title_meta_match.group(1))
-            layout_title = meta_data.get("title", "Untitled").strip()
-            content = re.sub(r'@@include\(["\']\./partials/title-meta\.html["\']\s*,\s*({.*?})\)', '', content)
-
-        # Clean static and links
-        content = clean_static_paths(content)
-        content = replace_html_links_with_django_urls(content)
-
-        # Parse the soup
-        soup = BeautifulSoup(content, "html.parser")
-
-        # Flexible layout detection: body or data-content
-        is_layout = bool(soup.find("body") or soup.find(attrs={"data-content": True}))
-
-        if is_layout:
-            head_tag = soup.find("head")
-            links_html = "\n".join(str(tag) for tag in head_tag.find_all("link")) if head_tag else ""
-
-            # Collect scripts (full soup)
-            scripts_html = "\n".join(str(tag) for tag in soup.find_all("script"))
-
-            # Extract main content: data-content > body > None
-            content_section = None
-            content_div = soup.find(attrs={"data-content": True})
-            if content_div:
-                div_clone = BeautifulSoup(str(content_div), "html.parser")
-                for script_tag in div_clone.find_all("script"):
-                    script_tag.decompose()
-                content_section = div_clone.decode_contents().strip()
-            elif soup.body:
-                body_clone = BeautifulSoup(str(soup.body), "html.parser")
-                for script_tag in body_clone.find_all("script"):
-                    script_tag.decompose()
-                content_section = body_clone.body.decode_contents().strip()
-
-            if content_section:
-                django_template = f"""{{% extends 'vertical.html' %}}
-
-{{% load static i18n %}}
-
-{{% block title %}}{layout_title}{{% endblock title %}}
-
-{{% block styles %}}
-{links_html}
-{{% endblock styles %}}
-
-{{% block content %}}
-{content_section}
-{{% endblock content %}}
-
-{{% block scripts %}}
-{scripts_html}
-{{% endblock scripts %}}"""
-                final_output = re.sub(r"@@include\([^)]+\)", "", django_template.strip())
+    {{% block scripts %}}
+    {scripts_html}
+    {{% endblock scripts %}}"""
+                final_output = django_template.strip()
             else:
-                print("⚠️ No data-content or body found. Keeping original content.")
-                final_output = re.sub(r"@@include\([^)]+\)", "", content.strip())
-        else:
-            # Not a layout
-            final_output = re.sub(r"@@include\([^)]+\)", "", content.strip())
+                final_output = final_content.strip()
 
-        with open(file, "w", encoding="utf-8") as f:
-            f.write(final_output + "\n")
+            with open(file, "w", encoding="utf-8") as f:
+                f.write(final_output + "\n")
 
-        print(f"✅ Processed: {file.relative_to(base_path)}")
-        count += 1
+            Log.converted(str(file))
+            count += 1
 
-    print(f"\n✨ {count} templates (layouts + partials) converted successfully.")
+        Log.info(f"{count} files converted in {self.project_pages_path}")
 
+    def _generic_include_replacer(self, match: re.Match) -> str:
+        """
+        A robust callback function to replace any matched @@include directive
+        with the correct Django {% include %} tag.
+        """
+        raw_path = match.group(1)
+        data_str = match.group(2)
 
-def create_django_project(project_name, source_folder, assets_folder):
-    project_root = Path("django") / project_name
-    project_root.parent.mkdir(parents=True, exist_ok=True)
+        clean_path = raw_path.lstrip("./")
 
-    # Create the Django project
-    print(f"📦 Creating Django project '{project_root}'...")
-    try:
-        cookiecutter(
-            'https://github.com/cookiecutter/cookiecutter-django',
-            output_dir=str(project_root.parent),
-            no_input=True,
-            extra_context={'project_name': project_name, 'frontend_pipeline': 'Gulp', 'username_type': 'email',
-                           'open_source_license': 'Not open source'},
+        if data_str:
+            data = self._extract_data_from_include(data_str)
+            if data:
+                with_parts = []
+                for key, value in data.items():
+                    escaped_value = str(value).replace("'", "\\'")
+                    with_parts.append(f"{key}='{escaped_value}'")
+
+                with_clause = " ".join(with_parts)
+                return f"{{% include '{clean_path}' with {with_clause} %}}"
+
+        return f"{{% include '{clean_path}' %}}"
+
+    def _extract_data_from_include(self, data_str: str) -> dict:
+        """
+        Safely parses a string that represents a Python dictionary.
+        """
+        try:
+            s = re.sub(r'[\n\r\t]', ' ', data_str)
+            s = re.sub(r'\s{2,}', ' ', s)
+            s = re.sub(r',\s*([}\]])', r'\1', s)
+            return ast.literal_eval(s)
+        except (ValueError, SyntaxError) as e:
+            Log.warning(f"Could not parse include data: {data_str}. Error: {e}")
+            return {}
+
+    def _clean_static_paths(self, html: str) -> str:
+        """
+        Rewrites local asset paths in src and href to use the Django {% static %} tag.
+        Handles paths with or without 'assets/' and ignores absolute URLs.
+        """
+        asset_extensions = [
+            'js', 'css', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico',
+            'webp', 'woff', 'woff2', 'ttf', 'eot', 'mp4', 'webm'
+        ]
+        extensions_pattern = '|'.join(asset_extensions)
+
+        pattern = re.compile(
+            r'\b(href|src)\s*=\s*["\']'
+            r'(?!{{|#|https?://|//|mailto:|tel:)'  # Exclusions
+            r'([^"\'#]+\.(?:' + extensions_pattern + r'))'  # Capture path
+                                                     r'([^"\']*)'  # Capture query/fragment
+                                                     r'["\']'
         )
 
-        print("✅ Django project created successfully.")
+        def replacer(match: re.Match) -> str:
+            attr = match.group(1)
+            path = match.group(2)
+            query_fragment = match.group(3)
 
-    except subprocess.CalledProcessError:
-        print("❌ Error: Could not create Django project. Make sure Composer and PHP are set up correctly.")
-        return
+            # Normalize path: remove any leading directories including 'assets'
+            normalized_path = re.sub(r'^(?:.*\/)?assets\/', '', path).lstrip('/')
 
-    # --- Start: Modify production.txt ---
-    prod_requirements_file = project_root / "requirements" / "production.txt"
-    unwanted_package = "psycopg[c]"
-    if prod_requirements_file.exists():
-        print(f"\n📝 Modifying '{prod_requirements_file}' to remove '{unwanted_package}'...")
-        try:
-            lines = prod_requirements_file.read_text().splitlines()
-            filtered_lines = [line for line in lines if not line.strip().startswith(unwanted_package)]
-            prod_requirements_file.write_text("\n".join(filtered_lines))
-            print(f"✅ '{unwanted_package}' removed from '{prod_requirements_file}'.")
-        except Exception as e:
-            print(f"❌ Error modifying '{prod_requirements_file}': {e}")
-            return
-    else:
-        print(f"⚠️ Warning: '{prod_requirements_file}' not found. Skipping modification.")
-    # --- End: Modify production.txt ---
-    # --- Start: Virtual Environment Setup ---
-    venv_dir = project_root / "venv"
-    print(f"\n🐍 Creating virtual environment at '{venv_dir}'...")
-    try:
-        subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
-        print("✅ Virtual environment created.")
+            return f'{attr}="{{% static \'{normalized_path}\' %}}{query_fragment}"'
 
-        if sys.platform == "win32":
-            venv_python = venv_dir / "Scripts" / "python.exe"
-            venv_pip = venv_dir / "Scripts" / "pip.exe"
-        else:
-            # This path is the entry point to the virtual environment
-            venv_python = venv_dir / "bin" / "python3"
-            venv_pip = venv_dir / "bin" / "pip3"
+        return pattern.sub(replacer, html)
 
-        if not venv_python.exists():
-            print(f"❌ Error: Virtual environment Python executable not found at {venv_python}")
-            return
+    def _replace_html_links_with_django_urls(self, html_content):
+        """
+        Replaces direct .html links in anchor tags (<a>) with Django {% url %} tags.
+        Handles 'index.html' specifically to map to the root URL '/'.
+        Example: <a href="dashboard-clinic.html"> -> <a href="{% url 'pages:dynamic_pages' template_name='dashboard-clinic' %}">
+        Example: <a href="index.html"> -> <a href="/">
+        """
+        # Regex to find href attributes in <a> tags that end with .html
+        pattern = r'(<a\s+[^>]*?href\s*=\s*["\'])([^"\'#]+\.html)(["\'][^>]*?>)'
 
-        # Install Django and other dependencies into the virtual environment
-        print("📦 Installing dependencies from local.txt...")
-        local_requirements_path = project_root / "requirements" / "local.txt"
-        try:
-            subprocess.run(
-                [str(venv_pip), "install", "-r", str(local_requirements_path)],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            print("✅ Dependencies from local.txt installed.")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error installing dependencies: {e}")
-            print(f"Stdout: {e.stdout}")
-            print(f"Stderr: {e.stderr}")
-            return
+        def replacer(match):
+            pre_path = match.group(1)  # e.g., <a ... href="
+            file_path_full = match.group(2)  # e.g., dashboard-clinic.html or ../folder/page.html
+            post_path = match.group(3)  # e.g., " ... >
 
-        app_name = "pages"
-        manage_py_path = project_root / "manage.py"  # This is Path('django/tonely/manage.py')
-        app_creation_target_dir = project_root / project_name  # This is Path('django/tonely/tonely')
+            # Extract the base filename without extension
+            # Path() handles relative paths and extracts the clean stem (filename without extension)
+            template_name = Path(file_path_full).stem
 
-        print(f"📂 Creating Django app '{app_name}'...")
-        try:
-            # **** THE CRUCIAL CHANGE: Convert only the venv_python and manage_py_path
-            # **** to absolute strings without resolving symlinks all the way to the system python.
-            # **** Path.absolute() is often better than Path.resolve() for this scenario.
+            # Special case for 'index.html'
+            if template_name == 'index':
+                django_url_tag = "/"
+            else:
+                # Construct the new Django URL tag for other pages
+                django_url_tag = f"{{% url 'pages:dynamic_pages' template_name='{template_name}' %}}"
 
-            # Get the absolute path to the venv's python executable
-            # This typically does not follow symlinks *outside* the virtual environment's immediate setup.
-            # It just makes the current Path object absolute relative to CWD.
-            absolute_venv_python_cmd = str(venv_python.absolute())
+            # Reconstruct the anchor tag with the new href
+            return f"{pre_path}{django_url_tag}{post_path}"
 
-            # Get the absolute path to manage.py
-            absolute_manage_py_path_cmd = str(manage_py_path.absolute())
+        return re.sub(pattern, replacer, html_content)
 
-            command = [absolute_venv_python_cmd, absolute_manage_py_path_cmd, "startapp", app_name]
-            print(f"Executing command: {' '.join(command)}")
-            print(f"With cwd: {app_creation_target_dir}")
+    def _replace_partial_variables(self):
+        count = 0
+        pattern = re.compile(r'@@(?!if\b|include\b)([A-Za-z_]\w*)\b')
 
-            subprocess.run(
-                command,
-                cwd=app_creation_target_dir,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            print(f"✅ Django app '{app_name}' created successfully.")
+        for file in self.project_partials_path.rglob(f"*{DJANGO_EXTENSION}"):
+            if not file.is_file():
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
 
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Error creating/registering app '{app_name}': {e}")
-            print(f"Command run: {' '.join(e.cmd)}")
-            print(f"Return code: {e.returncode}")
-            print(f"Stdout: {e.stdout}")
-            print(f"Stderr: {e.stderr}")
-        except Exception as e:
-            print(f"❌ An unexpected error occurred while creating/registering app: {e}")
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error creating virtual environment: {e}")
-        print(f"Stdout: {e.stdout}")
-        print(f"Stderr: {e.stderr}")
-    except Exception as e:
-        print(f"❌ An unexpected error occurred: {e}")
+            new_content = pattern.sub(r'{{ \1 }}', content)
+            if new_content != content:
+                file.write_text(new_content, encoding="utf-8")
+                Log.updated(str(file))
+                count += 1
 
-    empty_folder_contents(project_root / project_name / 'templates' / 'pages')
-
-    # --- Start: Add views.py and urls.py to the new 'pages' app ---
-    pages_app_dir = app_creation_target_dir / app_name  # This is the actual 'pages' app directory
-
-    views_content = """from django.shortcuts import render
-
-from django.template import TemplateDoesNotExist
-
-
-def root_page_view(request):
-    try:
-        return render(request, 'pages/index.html')
-    except TemplateDoesNotExist:
-        return render(request, 'pages/pages-404.html')
-
-
-def dynamic_pages_view(request, template_name):
-    try:
-        return render(request, f'pages/{template_name}.html')
-    except TemplateDoesNotExist:
-        return render(request, f'pages/pages-404.html')
-"""
-    urls_content = """from django.urls import path
-from pages.views import (root_page_view, dynamic_pages_view)
-
-app_name = "pages"
-
-urlpatterns = [
-    path('', root_page_view, name="dashboard"),
-    path('<str:template_name>/', dynamic_pages_view, name='dynamic_pages')
-]
-"""
-
-    views_py_path = pages_app_dir / "views.py"
-    urls_py_path = pages_app_dir / "urls.py"
-
-    print(f"📄 Writing content to '{views_py_path}'...")
-    try:
-        views_py_path.write_text(views_content)
-        print(f"✅ '{views_py_path.name}' created.")
-    except Exception as e:
-        print(f"❌ Error writing to '{views_py_path}': {e}")
-        return
-
-    print(f"📄 Writing content to '{urls_py_path}'...")
-    try:
-        urls_py_path.write_text(urls_content)
-        print(f"✅ '{urls_py_path.name}' created.")
-    except Exception as e:
-        print(f"❌ Error writing to '{urls_py_path}': {e}")
-        return
-
-    main_urls_file_path = project_root / "config" / "urls.py"
-    # --- Start: Include pages app URLs in main config/urls.py ---
-    print(f"\n🔗 Including '{app_name}' app URLs in '{main_urls_file_path}'...")
-    if main_urls_file_path.exists():
-        try:
-            with open(main_urls_file_path, 'r+') as f:
-                content = f.read()
-                # The line to insert
-                url_include_line = f"    path(\"\", include(\"{project_name}.{app_name}.urls\", namespace=\"{app_name}\")),\n"
-                # Regex to find the insertion point and avoid inserting if already present
-                # Looking for the line with 'Your stuff: custom urls includes go here' or similar
-                # And ensuring the exact include line isn't already there.
-                if url_include_line.strip() not in content:  # Check if line is already present
-                    # This regex matches the "Your stuff: custom urls includes go here" comment
-                    # and captures the preceding whitespace to maintain indentation.
-                    pattern = r"(\s*# Your stuff: custom urls includes go here)"
-                    new_content = re.sub(
-                        pattern,
-                        r"\1\n" + url_include_line,  # Insert after the matched comment
-                        content,
-                        count=1  # Only replace the first occurrence
-                    )
-                    f.seek(0)
-                    f.write(new_content)
-                    f.truncate()
-                    print(f"✅ URLs for '{app_name}' app included successfully.")
-                else:
-                    print(f"⚠️ URLs for '{app_name}' app already present in '{main_urls_file_path}'. Skipping.")
-        except Exception as e:
-            print(f"❌ Error including URLs in '{main_urls_file_path}': {e}")
-            return
-    else:
-        print(f"⚠️ Warning: Main URLs file '{main_urls_file_path}' not found. Skipping URL inclusion.")
-    # --- End: Include pages app URLs ---
-
-    # Copy the source file and change extensions
-    pages_path = project_root / project_name / "templates" / "pages"
-    pages_path.mkdir(parents=True, exist_ok=True)
-
-    change_extension_and_copy('html', source_folder, pages_path)
-
-    convert_to_django_templates(pages_path)
-
-    # Copy assets to webroot while preserving required files
-    assets_path = project_root / project_name / "static"
-    copy_assets(assets_folder, assets_path)
-
-    print(f"\n🎉 Project '{project_name}' setup complete at: {project_root}")
+        if count:
+            Log.info(f"{count} files updated in {self.project_partials_path}")
