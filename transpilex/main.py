@@ -5,7 +5,7 @@ from transpilex.config.package import PACKAGE_VERSION
 from transpilex.frameworks.blazor import BlazorConverter
 from transpilex.frameworks.cakephp import CakePHPConverter
 from transpilex.frameworks.codeigniter import CodeIgniterConverter
-from transpilex.frameworks.core import create_core_project
+from transpilex.frameworks.core import CoreConverter
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.frameworks.django import DjangoConverter
 from transpilex.frameworks.flask import FlaskConverter
@@ -26,13 +26,12 @@ from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, SUPPORTED_FRAMEWORK
 def main():
     parser = argparse.ArgumentParser(
         description="Transpilex CLI – Convert static HTML projects into dynamic frameworks.",
-        formatter_class=argparse.RawTextHelpFormatter  # Helps with formatting help text
+        formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}")
     parser.add_argument('--check', action='store_true', help="Run a system check.")
     parser.add_argument('--list', action='store_true', help="List all supported frameworks.")
 
-    # --- FIX: Make project and framework optional at the parser level ---
     parser.add_argument("project", help="The name for your new project.", nargs='?', default=None)
 
     subparsers = parser.add_subparsers(dest="framework", help="The target framework.")
@@ -97,6 +96,14 @@ def main():
     # spring
     spring_p = subparsers.add_parser("spring", help="Convert to Spring Boot")
     add_common_framework_args(spring_p)
+    spring_p.add_argument("--no-gulp", action='store_true')
+    spring_p.add_argument("--no-plugins-config", action='store_true')
+
+    # core
+    core_p = subparsers.add_parser("core", help="Convert to Spring Boot")
+    add_common_framework_args(core_p)
+    core_p.add_argument("--no-gulp", action='store_true')
+    core_p.add_argument("--no-plugins-config", action='store_true')
 
     args = parser.parse_args()
 
@@ -105,7 +112,6 @@ def main():
         return
     if args.list:
         print("Supported frameworks:")
-        # Get choices from the subparsers object
         if subparsers.choices:
             for sp_name in sorted(subparsers.choices.keys()):
                 print(f"  - {sp_name}")
@@ -114,7 +120,7 @@ def main():
     if not args.project or not args.framework:
         parser.print_help()
         # Add a more explicit error message
-        print("\nError: The following arguments are required for conversion: project, framework")
+        Log.error("Error: The following arguments are required for conversion: project, framework")
         sys.exit(1)
 
     handler_args = {
@@ -125,14 +131,6 @@ def main():
 
     def make_class_handler(cls):
         return lambda: cls(**handler_args, **framework_specific_kwargs(args))
-
-    def make_func_handler(func):
-        return lambda: func(
-            handler_args["project_name"],
-            handler_args["source_path"],
-            handler_args["assets_path"],
-            **framework_specific_kwargs(args)
-        )
 
     handlers = {
         'php': make_class_handler(PHPConverter),
@@ -145,6 +143,7 @@ def main():
         'flask': make_class_handler(FlaskConverter),
         'ror': make_class_handler(RoRConverter),
         'spring': make_class_handler(SpringConverter),
+        'core': make_class_handler(CoreConverter),
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
     }

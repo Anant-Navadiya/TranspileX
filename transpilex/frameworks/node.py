@@ -30,7 +30,7 @@ class NodeConverter:
         self.project_views_path = Path(self.project_root / "views")
         self.project_routes_path = Path(self.project_root / "routes")
 
-        self.project_root.mkdir(parents=True, exist_ok=True)
+
 
         self.create_project()
 
@@ -45,6 +45,8 @@ class NodeConverter:
             return
 
         Log.project_start(self.project_name)
+
+        self.project_root.mkdir(parents=True, exist_ok=True)
 
         change_extension_and_copy(NODE_EXTENSION, self.source_path, self.project_views_path)
 

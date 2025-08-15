@@ -2,14 +2,11 @@ SOURCE_PATH = "./html"
 
 ASSETS_PATH = "./assets"
 
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'cakephp', 'codeigniter', 'symfony', 'node', 'django', 'flask', 'ror', 'core',
+SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'cakephp', 'codeigniter', 'symfony', 'node', 'django', 'flask', 'ror',
+                        'spring' 'core',
                         'mvc',
                         'blazor',
-                        'core-to-mvc', 'spring']
-
-FILE_INCLUDE_PREFIX = '@@'
-FILE_INCLUDE_COMMAND = 'include'
-FILE_INCLUDE_SUFFIX = ''
+                        'core-to-mvc']
 
 # PHP
 PHP_DESTINATION_FOLDER = 'php'
@@ -85,18 +82,33 @@ ROR_ASSETS_PRESERVE = ['entrypoints']
 # Spring Boot
 SPRING_BOOT_PROJECT_CREATION_URL = 'https://start.spring.io/starter.zip'
 SPRING_BOOT_DESTINATION_FOLDER = 'spring'
-SPRING_BOOT_ASSETS_FOLDER = 'src/main/resources/static'
 SPRING_BOOT_EXTENSION = '.html'
+SPRING_BOOT_ASSETS_FOLDER = "static"
+SPRING_TEMPLATES_FOLDER = "templates"
+SPRING_JAVA_SOURCE_FOLDER = "src/main/java"
+SPRING_RESOURCES_FOLDER = "src/main/resources"
 SPRING_BOOT_GULP_ASSETS_PATH = './src/main/resources/static'
+SPRING_BOOT_GROUP_ID = "com"
 SPRING_BOOT_PROJECT_PARAMS = {
     "type": "maven-project",
     "language": "java",
     "bootVersion": "3.5.3",
-    "groupId": "com",
+    "groupId": SPRING_BOOT_GROUP_ID,
     "packaging": "jar",
     "javaVersion": "24",
     "dependencies": "web,thymeleaf,devtools",
 }
+
+# Dot Net
+SLN_FILE_CREATION_COMMAND = 'dotnet new sln -n'
+
+# Core
+CORE_PROJECT_CREATION_COMMAND = 'dotnet new razor -n'
+CORE_DESTINATION_FOLDER = 'core'
+CORE_ASSETS_FOLDER = 'wwwroot'
+CORE_EXTENSION = '.cshtml'
+CORE_ADDITIONAL_EXTENSION = '.cshtml.cs'
+CORE_GULP_ASSETS_PATH = './wwwroot'
 
 # MVC
 MVC_PROJECT_CREATION_COMMAND = 'dotnet new mvc -n'
@@ -111,13 +123,6 @@ BLAZOR_DESTINATION_FOLDER = 'blazor'
 BLAZOR_ASSETS_FOLDER = 'wwwroot'
 BLAZOR_EXTENSION = '.razor'
 BLAZOR_GULP_ASSETS_PATH = './wwwroot'
-
-# Spring
-SPRING_PROJECT_CREATION_COMMAND = 'dotnet new webapp -n'
-SPRING_DESTINATION_FOLDER = 'spring'
-SPRING_ASSETS_FOLDER = 'src/main/resources/static/'
-SPRING_EXTENSION = '.html'
-SPRING_GULP_ASSETS_PATH = './src/main/resources/static/'
 
 TITLE_KEYS = ["title", "pageTitle"]
 SUBTITLE_KEYS = ["subtitle", "subTitle", "pageSubText"]

@@ -32,8 +32,6 @@ class PHPConverter:
         self.project_assets_path = self.project_src_path / PHP_ASSETS_FOLDER
         self.project_partials_path = self.project_src_path / "partials"
 
-        self.project_src_path.mkdir(parents=True, exist_ok=True)
-
         self.create_project()
 
     def create_project(self):
@@ -47,6 +45,8 @@ class PHPConverter:
             return
 
         Log.project_start(self.project_name)
+
+        self.project_src_path.mkdir(parents=True, exist_ok=True)
 
         change_extension_and_copy(PHP_EXTENSION, self.source_path, self.project_src_path)
 
