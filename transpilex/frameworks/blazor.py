@@ -3,50 +3,64 @@ import re
 import subprocess
 from pathlib import Path
 from bs4 import BeautifulSoup
-import shutil
+import os
 
-from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, BLAZOR_ASSETS_FOLDER, BLAZOR_DESTINATION_FOLDER, \
-    BLAZOR_PROJECT_CREATION_COMMAND, BLAZOR_EXTENSION, BLAZOR_GULP_ASSETS_PATH
-from transpilex.helpers import change_extension_and_copy, copy_assets
-from transpilex.helpers.change_extension import change_extension
+from transpilex.config.base import BLAZOR_ASSETS_FOLDER, BLAZOR_DESTINATION_FOLDER, \
+    BLAZOR_PROJECT_CREATION_COMMAND, BLAZOR_EXTENSION, BLAZOR_GULP_ASSETS_PATH, SLN_FILE_CREATION_COMMAND
+from transpilex.helpers import copy_assets
+from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.casing import to_pascal_case
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.logs import Log
+from transpilex.helpers.package_json import update_package_json
 from transpilex.helpers.replace_html_links import replace_html_links
 from transpilex.helpers.restructure_files import apply_casing
+from transpilex.helpers.validations import folder_exists
 
 
 class BlazorConverter:
-    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=BLAZOR_DESTINATION_FOLDER,
-                 assets_path=ASSETS_PATH):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
+                 plugins_config: bool = True):
         self.project_name = project_name.title()
         self.source_path = Path(source_path)
-        self.destination_path = Path(destination_folder)
-        self.assets_path = Path(assets_path)
+        self.destination_path = Path(BLAZOR_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
+        self.include_gulp = include_gulp
+        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / BLAZOR_ASSETS_FOLDER
         self.project_pages_path = Path(self.project_root / "Components" / "Pages")
-
         self.project_layout_path = Path(self.project_root / "Components" / "Layout")
         self.project_partials_path = Path(self.project_layout_path / "Partials")
 
         self.create_project()
 
     def create_project(self):
-        Log.info(f"Creating Blazor project at: '{self.project_root}'...")
 
-        self.project_root.parent.mkdir(parents=True, exist_ok=True)
+        if not folder_exists(self.source_path):
+            Log.error("Source folder does not exist")
+            return
+
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
+        Log.project_start(self.project_name)
 
         try:
+
+            self.project_root.parent.mkdir(parents=True, exist_ok=True)
+
             subprocess.run(f'{BLAZOR_PROJECT_CREATION_COMMAND} {self.project_name}', shell=True, check=True,
                            cwd=self.project_root.parent)
 
-            Log.success(f"Blazor project created.")
+            Log.success(f"Blazor project created successfully")
 
             subprocess.run(
-                f'dotnet new sln -n {self.project_name}',
+                f'{SLN_FILE_CREATION_COMMAND} {self.project_name}',
                 cwd=self.project_root.parent,
                 shell=True,
                 check=True
@@ -61,11 +75,13 @@ class BlazorConverter:
                 check=True
             )
 
-            Log.success(".sln file created successfully.")
+            Log.info(".sln file created successfully")
 
         except subprocess.CalledProcessError:
-            Log.error(f"Blazor project creation failed.")
+            Log.error(f"Blazor project creation failed")
             return
+
+        copy_assets(self.assets_path, self.project_assets_path)
 
         empty_folder_contents(self.project_pages_path)
 
@@ -73,18 +89,19 @@ class BlazorConverter:
 
         empty_folder_contents(self.project_layout_path)
 
-        self._move_partials()
+        self._copy_partials()
 
-        copy_assets(self.assets_path, self.project_assets_path)
+        if self.include_gulp:
+            add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH, self.plugins_config)
+            update_package_json(self.source_path, self.project_root, self.project_name)
 
-        add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH)
+        if self.include_gulp and self.plugins_config:
+            add_plugins_file(self.source_path, self.project_root)
 
-        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self, skip_dirs=["partials"], casing="pascal"):
-
-        copied_count = 0
-
+        count = 0
         if skip_dirs is None:
             skip_dirs = []
 
@@ -94,27 +111,26 @@ class BlazorConverter:
                 continue
 
             relative_path = file.relative_to(self.source_path)
-
             with open(file, "r", encoding="utf-8") as f:
                 raw_html = f.read()
 
             soup = BeautifulSoup(raw_html, "html.parser")
             is_partial = "partials" in file.parts
 
-            script_tags = soup.find_all('script')
+            js_import_paths = []
+            excluded_paths = ["plugins/", "vendors/", "libs/"]
 
-            js_import_path = None
-            # Find first script tag with src starting with /js, assets/js or ./js
-            for tag in script_tags:
-                src = tag.get('src', '')
-                if src.startswith('/js') or src.startswith('assets/js') or src.startswith('./js'):
-                    js_import_path = src
-                    break  # take first matching
+            for tag in soup.find_all('script'):
+                src = tag.get('src')
+                if src:
+                    if not any(excluded in src for excluded in excluded_paths):
+                        js_import_paths.append(src)
+                else:
+                    script_content = tag.string
+                    if script_content and "new Date().getFullYear()" in script_content:
+                        tag.replace_with("@DateTime.Now.Year")
 
-            # Remove all scripts and link tags anyway
-            for tag in script_tags:
-                tag.decompose()
-            for tag in soup.find_all('link', rel='stylesheet'):
+            for tag in soup.find_all(['script', 'link']):
                 tag.decompose()
 
             if is_partial:
@@ -133,7 +149,6 @@ class BlazorConverter:
                     is_body_content = False
 
             base_name = file.stem
-
             if '-' in base_name:
                 name_parts = [part.replace("_", "-") for part in base_name.split('-')]
                 final_file_name = name_parts[-1]
@@ -151,46 +166,81 @@ class BlazorConverter:
             target_dir = self.project_pages_path / Path(*processed_folder_parts)
             target_dir.mkdir(parents=True, exist_ok=True)
             target_file = target_dir / f"{processed_file_name}{final_ext}"
-
             route_path = "/" + base_name.lower().replace("_", "-")
 
-            top_lines = f"""@page "{route_path}"
+            top_lines = ""
+            end_lines = ""
+
+            if js_import_paths:
+                top_lines = f"""@page "{route_path}"
     @rendermode InteractiveServer
+    @implements IAsyncDisposable
     @inject IJSRuntime JsRuntime;
 
     """
-            if is_body_content:
-                # Assuming project name is self.project_name, adjust casing if needed
-                top_lines += f"""@using {self.project_name}.Components.Layout
-            @layout BaseLayout
+                import_statements = []
+                load_function_calls = []
 
-            """
+                for path_str in js_import_paths:
 
-            else:
-                top_lines += "\n"
+                    clean_path_str = path_str.lstrip('/')
 
-            if js_import_path:
-                # Fix the path if needed - remove leading slash to make it relative for import
-                if js_import_path.startswith('/'):
-                    js_import_path = '.' + js_import_path
+                    original_file_path = self.source_path / clean_path_str
+                    function_name, import_path = self._wrap_and_copy_js_file(original_file_path)
+
+                    if function_name and import_path:
+                        # The import path is now the path to the NEW wrapped file
+                        import_statements.append(
+                            f'_modules.Add(await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./{import_path}"));'
+                        )
+                        # The function name is returned by our helper
+                        load_function_calls.append(
+                            f'await JsRuntime.InvokeVoidAsync("{function_name}");'
+                        )
+
+                imports_code = "\n                    ".join(import_statements)
+                load_calls_code = "\n                    ".join(load_function_calls)
 
                 end_lines = f"""
     @code {{
-        private IJSObjectReference? _module;
+        private List<IJSObjectReference> _modules = new();
 
         protected override async Task OnAfterRenderAsync(bool firstRender)
         {{
             if (firstRender)
             {{
-                _module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", "{js_import_path}");
-                await JsRuntime.InvokeVoidAsync("");
-                await JsRuntime.InvokeVoidAsync("loadConfig");
-                await JsRuntime.InvokeVoidAsync("loadApps");
+                try
+                {{
+                    {imports_code}
+                    {load_calls_code}
+                    await JsRuntime.InvokeVoidAsync("loadConfig");
+                    await JsRuntime.InvokeVoidAsync("loadApps");
+                }}
+                catch (Exception ex)
+                {{
+                    Console.WriteLine($"Error during JS interop: {{ex.Message}}");
+                }}
+            }}
+        }}
+
+        async ValueTask IAsyncDisposable.DisposeAsync()
+        {{
+            foreach (var module in _modules)
+            {{
+                if (module is not null)
+                {{
+                    await module.DisposeAsync();
+                }}
             }}
         }}
     }}
     """
             else:
+                top_lines = f"""@page "{route_path}"
+    @rendermode InteractiveServer
+    @inject IJSRuntime JsRuntime;
+
+    """
                 end_lines = """
     @code {
         protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -203,9 +253,15 @@ class BlazorConverter:
         }
     }
     """
+            if is_body_content:
+                top_lines += f"""@using {self.project_name}.Components.Layout
+    @layout BaseLayout
+
+    """
+            else:
+                top_lines += "\n"
 
             razor_content = f"{top_lines}{main_content}\n{end_lines}"
-
             razor_content = clean_relative_asset_paths(razor_content)
             razor_content = self._convert_partial_include_to_blazor(razor_content)
             razor_content = replace_html_links(razor_content, '')
@@ -213,10 +269,10 @@ class BlazorConverter:
             with open(target_file, "w", encoding="utf-8") as f:
                 f.write(razor_content.strip() + "\n")
 
-            print(f"✅ Created: {target_file.relative_to(self.project_pages_path)}")
-            copied_count += 1
+            Log.converted(str(target_file))
+            count += 1
 
-        print(f"\n✨ {copied_count} .razor files generated from HTML sources.")
+        Log.info(f"{count} files converted in {self.project_pages_path}")
 
     def _generate_viewbag_code(self, data: dict):
         if not data:
@@ -230,44 +286,153 @@ class BlazorConverter:
         return "@{\n    " + "\n    ".join(lines) + "\n}"
 
     def _convert_partial_include_to_blazor(self, content: str) -> str:
-        # Regex to capture @@include call with JSON params
+        """
+        Finds @@include statements and converts them to Blazor components.
+
+        Specifically targets 'page-title.html' and 'app-pagetitle.html' to
+        create a generic <PageBreadcrumb /> component with dynamic attributes.
+        """
         pattern = re.compile(
-            r'@@include\(\s*"(?P<path>[^"]+)"\s*,\s*(?P<json>{.*?})\s*\)',
+            r'@@include\(\s*[\'"](?P<path>[^\'"]+)[\'"]\s*,\s*(?P<json>{.*?})\s*\)',
             re.DOTALL
         )
 
         def replacer(match):
             path = match.group("path")
             json_str = match.group("json")
+            partial_file_name = Path(path).name
 
-            # Extract component name from partial filename, e.g. page-title.html => PageTitle
-            partial_file = Path(path).stem
-            component_name = ''.join(word.capitalize() for word in partial_file.split('-'))
+            # --- KEY LOGIC: Check for target partials ---
+            if partial_file_name in ["page-title.html", "app-pagetitle.html"]:
+                component_name = "PageBreadcrumb"
+            else:
+                # Fallback for other partials (e.g., menu.html, title-meta.html)
+                partial_stem = Path(path).stem
+                component_name = ''.join(word.capitalize() for word in partial_stem.replace('app-', '').split('-'))
 
-            # Try to parse JSON params
+            # --- Sanitize JSON to handle common formatting issues ---
+            # 1. Replace newlines within the string to handle multi-line values
+            json_str_single_line = json_str.replace('\n', ' ')
+            # 2. Remove trailing commas before the closing brace '}'
+            sanitized_json_str = re.sub(r',\s*(?=})', '', json_str_single_line)
+
             try:
-                params = json.loads(json_str)
+                params = json.loads(sanitized_json_str)
             except json.JSONDecodeError:
-                # If JSON invalid, just return original string (or handle error as needed)
+                print(f"WARNING: Could not parse JSON for partial '{path}'.")
                 return match.group(0)
 
-            # Convert keys and values to Blazor component attributes
+            # --- Generate attributes dynamically from any key-value pairs ---
             attr_list = []
             for key, val in params.items():
-                # Escape quotes inside val if string
+                # Convert key to PascalCase (e.g., pageTitle -> PageTitle)
+                pascal_key = key[0].upper() + key[1:] if key else ""
+
                 if isinstance(val, str):
                     val_escaped = val.replace('"', '&quot;')
-                    attr_list.append(f'{key}="{val_escaped}"')
-                else:
-                    attr_list.append(f'{key}="{val}"')
+                    attr_list.append(f'{pascal_key}="{val_escaped}"')
+                else:  # Handles bools, numbers, etc.
+                    attr_list.append(f'{pascal_key}="{str(val).lower() if isinstance(val, bool) else val}"')
 
             attrs = ' '.join(attr_list)
 
-            # Compose Blazor component tag
             return f"<{component_name} {attrs} />"
 
         return pattern.sub(replacer, content)
 
-    def _move_partials(self):
-        partials_dir = Path(self.source_path / "partials")
-        change_extension(BLAZOR_EXTENSION, partials_dir, self.project_partials_path)
+    def _copy_partials(self):
+        """
+        Copies and processes partials from the source folder.
+        It renames them to _PascalCase.cshtml, and processes their content
+        for nested includes.
+        """
+        self.project_partials_path.mkdir(parents=True, exist_ok=True)
+        partials_source = self.source_path / "partials"
+
+        if partials_source.exists() and partials_source.is_dir():
+            for filename in os.listdir(partials_source):
+                source_file = partials_source / filename
+                if not source_file.is_file():
+                    continue
+
+                # Read the original partial's content
+                with open(source_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                # Process its content for nested includes.
+                # We pass an empty list because partials should not set the page's ViewBag.
+                # processed_content, _ = self._process_includes(content, [])
+
+                # Also clean asset paths within the partial
+                processed_content = clean_relative_asset_paths(content)
+                processed_content = replace_html_links(processed_content, '')
+
+                # Determine the new _PascalCase.cshtml filename
+                pascal_stem = to_pascal_case(source_file.stem)
+                new_filename = f"{pascal_stem}{BLAZOR_EXTENSION}"
+                destination_file = self.project_partials_path / new_filename
+
+                # Write the processed content to the new file
+                with open(destination_file, "w", encoding="utf-8") as f:
+                    f.write(processed_content)
+
+    def _wrap_and_copy_js_file(self, original_js_path: Path):
+        """
+        Reads a JS file, wraps its content in a 'load' function with a
+        properly scoped IIFE, and saves it to the Blazor project's wwwroot.
+        """
+        if not original_js_path.is_file():
+            # Keep this essential warning for operational feedback
+            Log.warning(f"JS source file not found, skipping: {original_js_path}")
+            return None, None
+
+        try:
+            # Determine the relative path to maintain the folder structure
+            relative_to_source_str = str(original_js_path.relative_to(self.source_path))
+
+            # Find the core path by stripping known prefixes
+            core_path_str = ""
+            prefixes_to_strip = ['assets/js/', 'scripts/']
+            for prefix in prefixes_to_strip:
+                if relative_to_source_str.startswith(prefix):
+                    core_path_str = relative_to_source_str[len(prefix):]
+                    break
+            else:
+                core_path_str = relative_to_source_str
+
+            # Standardize the final destination inside the 'js/' folder
+            final_relative_path = Path('js') / core_path_str
+            destination_file = self.project_assets_path / final_relative_path
+            destination_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Generate the PascalCase function name
+            file_stem = original_js_path.stem
+            parts = file_stem.split('-')
+            pascal_case_stem = "".join(word.capitalize() for word in parts)
+            function_name = f"load{pascal_case_stem}"
+
+            # Read the original content
+            with open(original_js_path, "r", encoding="utf-8") as f:
+                original_content = f.read()
+
+            # Create the new wrapped content with an IIFE
+            wrapped_content = f"""
+window.{function_name} = function () {{
+{original_content}
+}};
+    """
+            # Save the newly wrapped file
+            with open(destination_file, "w", encoding="utf-8") as f:
+                f.write(wrapped_content.strip())
+
+            import_path = final_relative_path.as_posix()
+            return function_name, import_path
+
+        except ValueError:
+            # Handle cases where the path relationship can't be determined
+            Log.error(f"Could not determine relative path for JS file: {original_js_path}")
+            return None, None
+        except Exception as e:
+            # A general catch for any other unexpected errors during file processing
+            Log.error(f"An unexpected error occurred while processing '{original_js_path}': {e}")
+            return None, None

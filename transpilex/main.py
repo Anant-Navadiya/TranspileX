@@ -2,20 +2,20 @@ import argparse
 import sys
 
 from transpilex.config.package import PACKAGE_VERSION
-from transpilex.frameworks.blazor import BlazorConverter
+from transpilex.frameworks.php import PHPConverter
+from transpilex.frameworks.laravel import LaravelConverter
 from transpilex.frameworks.cakephp import CakePHPConverter
 from transpilex.frameworks.codeigniter import CodeIgniterConverter
-from transpilex.frameworks.core import CoreConverter
-from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
+from transpilex.frameworks.symfony import SymfonyConverter
+from transpilex.frameworks.node import NodeConverter
 from transpilex.frameworks.django import DjangoConverter
 from transpilex.frameworks.flask import FlaskConverter
-from transpilex.frameworks.laravel import LaravelConverter
-from transpilex.frameworks.mvc import create_mvc_project
-from transpilex.frameworks.node import NodeConverter
-from transpilex.frameworks.php import PHPConverter
 from transpilex.frameworks.ror import RoRConverter
 from transpilex.frameworks.spring import SpringConverter
-from transpilex.frameworks.symfony import SymfonyConverter
+from transpilex.frameworks.core import CoreConverter
+from transpilex.frameworks.mvc import MVCConverter
+from transpilex.frameworks.blazor import BlazorConverter
+from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.helpers.logs import Log
 
 from transpilex.helpers.system_check import system_check
@@ -100,10 +100,22 @@ def main():
     spring_p.add_argument("--no-plugins-config", action='store_true')
 
     # core
-    core_p = subparsers.add_parser("core", help="Convert to Spring Boot")
+    core_p = subparsers.add_parser("core", help="Convert to Core")
     add_common_framework_args(core_p)
     core_p.add_argument("--no-gulp", action='store_true')
     core_p.add_argument("--no-plugins-config", action='store_true')
+
+    # mvc
+    mvc_p = subparsers.add_parser("mvc", help="Convert to MVC")
+    add_common_framework_args(mvc_p)
+    mvc_p.add_argument("--no-gulp", action='store_true')
+    mvc_p.add_argument("--no-plugins-config", action='store_true')
+
+    # blazor
+    blazor_p = subparsers.add_parser("blazor", help="Convert to MVC")
+    add_common_framework_args(blazor_p)
+    blazor_p.add_argument("--no-gulp", action='store_true')
+    blazor_p.add_argument("--no-plugins-config", action='store_true')
 
     args = parser.parse_args()
 
@@ -111,10 +123,10 @@ def main():
         system_check(args)
         return
     if args.list:
-        print("Supported frameworks:")
+        Log.success("Supported frameworks:")
         if subparsers.choices:
-            for sp_name in sorted(subparsers.choices.keys()):
-                print(f"  - {sp_name}")
+            for sp_name in (subparsers.choices.keys()):
+                Log.info(f"- {sp_name}")
         return
 
     if not args.project or not args.framework:
@@ -144,6 +156,7 @@ def main():
         'ror': make_class_handler(RoRConverter),
         'spring': make_class_handler(SpringConverter),
         'core': make_class_handler(CoreConverter),
+        'mvc': make_class_handler(MVCConverter),
         'blazor': make_class_handler(BlazorConverter),
         'core-to-mvc': make_class_handler(CoreToMvcConverter),
     }

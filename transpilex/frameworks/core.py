@@ -9,6 +9,7 @@ from transpilex.config.base import CORE_DESTINATION_FOLDER, CORE_PROJECT_CREATIO
     CORE_EXTENSION, CORE_ASSETS_FOLDER, CORE_GULP_ASSETS_PATH, CORE_ADDITIONAL_EXTENSION
 from transpilex.helpers import copy_assets
 from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.casing import to_pascal_case
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
@@ -96,7 +97,7 @@ class CoreConverter:
         Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self, skip_dirs=None, casing="pascal"):
-        copied_count = 0
+        count = 0
         if skip_dirs is None:
             skip_dirs = ['partials']
 
@@ -182,21 +183,21 @@ class CoreConverter:
 
             # ... (your logic for generating the final cshtml_content string) ...
             cshtml_content = f"""@page \"{route_path}\"
-    @model TEMP_NAMESPACE.{processed_file_name}Model
+@model TEMP_NAMESPACE.{processed_file_name}Model
 
-    {viewbag_code}
+{viewbag_code}
 
-    @section styles
-    {{
-        {styles_content}
-    }}
+@section styles
+{{
+    {styles_content}
+}}
 
-    {main_content}
+{main_content}
 
-    @section scripts
-    {{
-        {scripts_content}
-    }}"""
+@section scripts
+{{
+    {scripts_content}
+}}"""
 
             cshtml_content = clean_relative_asset_paths(cshtml_content)
             cshtml_content = replace_html_links(cshtml_content, '')
@@ -205,24 +206,9 @@ class CoreConverter:
                 f.write(cshtml_content.strip() + "\n")
 
             Log.converted(str(target_file))
-            copied_count += 1
+            count += 1
 
-        Log.info(f"{copied_count} files converted in {self.project_pages_path}")
-
-    def _to_pascal_case(self, s: str):
-        # First split on _ - and spaces
-        parts = re.split(r"[_\-\s]+", s)
-
-        # For each part, split camelCase into separate words
-        def split_camel_case(word):
-            return re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])', word)
-
-        words = []
-        for part in parts:
-            words.extend(split_camel_case(part))
-
-        # Capitalize all parts and join
-        return "".join(word.capitalize() for word in words if word)
+        Log.info(f"{count} files converted in {self.project_pages_path}")
 
     def _process_includes(self, content: str, page_title_partials: list[str]):
         """
@@ -256,7 +242,7 @@ class CoreConverter:
 
                     # Add all found pairs to the viewbag_data dictionary
                     for key, value in matches:
-                        viewbag_data[self._to_pascal_case(key)] = value.strip()
+                        viewbag_data[to_pascal_case(key)] = value.strip()
 
                 except Exception as e:
                     # A general catch-all just in case of unexpected errors
@@ -264,7 +250,7 @@ class CoreConverter:
                     Log.info(f"Problematic string: {json_str}")
 
             # Convert the partial's filename to the Razor convention (_PascalCase.cshtml)
-            pascal_stem = self._to_pascal_case(partial_stem)
+            pascal_stem = to_pascal_case(partial_stem)
             razor_partial_name = f"_{pascal_stem}{CORE_EXTENSION}"
 
             # Return the Razor syntax for a partial view
@@ -293,7 +279,7 @@ class CoreConverter:
             except json.JSONDecodeError:
                 data_raw = {}
 
-            data_pascal = {self._to_pascal_case(k): v for k, v in data_raw.items()}
+            data_pascal = {to_pascal_case(k): v for k, v in data_raw.items()}
 
             replacement = '@await Html.PartialAsync("~/Pages/Shared/Partials/_PageTitle.cshtml")'
             updated_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
@@ -395,7 +381,7 @@ namespace {namespace}
                 processed_content = replace_html_links(processed_content, '')
 
                 # Determine the new _PascalCase.cshtml filename
-                pascal_stem = self._to_pascal_case(source_file.stem)
+                pascal_stem = to_pascal_case(source_file.stem)
                 new_filename = f"_{pascal_stem}{CORE_EXTENSION}"
                 destination_file = self.project_partials_path / new_filename
 
