@@ -18,7 +18,7 @@ from transpilex.frameworks.blazor import BlazorConverter
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.helpers.logs import Log
 from transpilex.helpers.system_check import system_check
-from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, SUPPORTED_FRAMEWORKS
+from transpilex.config.base import SOURCE_PATH, ASSETS_PATH
 
 
 def main():
@@ -26,13 +26,13 @@ def main():
         description="Transpilex CLI – Convert static HTML projects into dynamic frameworks.",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}")
-    parser.add_argument('--check', action='store_true', help="Run a system check.")
-    parser.add_argument('--list', action='store_true', help="List all supported frameworks.")
+    parser.add_argument('--version', action='version', version=f"v{PACKAGE_VERSION}", help="Show current version")
+    parser.add_argument('--check', action='store_true', help="Run a system check")
+    parser.add_argument('--list', action='store_true', help="List all supported frameworks")
 
     parser.add_argument("project", help="The name for your new project.", nargs='?', default=None)
 
-    subparsers = parser.add_subparsers(dest="framework", help="The target framework.")
+    subparsers = parser.add_subparsers(dest="framework", help="The target frameworks.")
 
     def add_common_framework_args(sp):
         sp.add_argument("--source", default=SOURCE_PATH, help="Path to the source HTML files.")
@@ -107,7 +107,7 @@ def main():
     args = parser.parse_args()
 
     if args.check:
-        system_check(args)
+        system_check()
         return
     if args.list:
         Log.success("Supported frameworks:")

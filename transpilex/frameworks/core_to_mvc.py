@@ -3,23 +3,24 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, MVC_DESTINATION_FOLDER, MVC_ASSETS_FOLDER, \
-    MVC_PROJECT_CREATION_COMMAND, MVC_GULP_ASSETS_PATH
+from transpilex.config.base import MVC_DESTINATION_FOLDER, MVC_ASSETS_FOLDER, \
+    MVC_PROJECT_CREATION_COMMAND, MVC_GULP_ASSETS_PATH, SLN_FILE_CREATION_COMMAND
 from transpilex.helpers import copy_assets
 from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.logs import Log
 from transpilex.helpers.package_json import update_package_json
+from transpilex.helpers.plugins_file import plugins_file
+from transpilex.helpers.validations import folder_exists
 
 KEYWORDS = ("@page", "@model")
 
 
 class CoreToMvcConverter:
-    def __init__(self, project_name, source_path=SOURCE_PATH, destination_folder=MVC_DESTINATION_FOLDER,
-                 assets_path=ASSETS_PATH):
+    def __init__(self, project_name: str, source_path: str, assets_path: str):
         self.project_name = project_name.title()
         self.source_path = Path(source_path)
-        self.destination_path = Path(destination_folder)
-        self.assets_path = Path(assets_path)
+        self.destination_path = Path(MVC_DESTINATION_FOLDER)
+        self.assets_path = Path(self.source_path / assets_path)
 
         self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / MVC_ASSETS_FOLDER
@@ -28,50 +29,49 @@ class CoreToMvcConverter:
 
         self.core_project_path = Path(f"core/{self.project_name}")
         self.core_project_pages_path = Path(f"core/{self.project_name}/Pages")
+        self.core_project_shared_path = Path(f"core/{self.project_name}/Shared")
+        self.core_project_partials_path = Path(f"core/{self.project_name}/Shared/Partials")
+        self.core_project_assets_path = Path(f"core/{self.project_name}/wwwroot")
 
         self.create_project()
 
     def create_project(self):
 
-        if self.core_project_path.exists():
-            Log.info(f"Core project found at: '{self.core_project_path}'")
+        if folder_exists(self.project_root):
+            Log.error(f"Project already exists at: {self.project_root}")
+            return
+
+        if folder_exists(self.core_project_path):
+            Log.info(f"Core project found at: {self.core_project_path}")
         else:
             Log.error(f"Core project not found at: '{self.core_project_path}'")
             return
 
-        Log.info(f"Creating MVC project at: '{self.project_root}'...")
+        Log.project_start(self.project_name)
 
         self.project_root.mkdir(parents=True, exist_ok=True)
 
         try:
             subprocess.run(
-                f'{MVC_PROJECT_CREATION_COMMAND} {self.project_name}',
-                cwd=self.project_root.parent,
-                shell=True,
-                check=True
-            )
-            Log.success(f"MVC project created successfully.")
+                f'{MVC_PROJECT_CREATION_COMMAND} {self.project_name}', cwd=self.project_root.parent,
+                shell=True, check=True)
+
+            Log.success("MVC project created successfully")
 
             subprocess.run(
-                f'dotnet new sln -n {self.project_name}',
-                cwd=self.project_root.parent,
-                shell=True,
-                check=True
-            )
+                f'{SLN_FILE_CREATION_COMMAND} {self.project_name}', cwd=self.project_root.parent, shell=True,
+                check=True)
 
             sln_file = f"{self.project_name}.sln"
 
             subprocess.run(
                 f'dotnet sln {sln_file} add {Path(self.project_name) / self.project_name}.csproj',
-                cwd=self.project_root.parent,
-                shell=True,
-                check=True
-            )
+                cwd=self.project_root.parent, shell=True, check=True)
 
-            Log.success(f".sln file created successfully.")
+            Log.info(".sln file created successfully")
 
         except subprocess.CalledProcessError:
-            Log.error("Could not create MVC project.")
+            Log.error("MVC project creation failed")
             return
 
         self.project_views_path.mkdir(parents=True, exist_ok=True)
@@ -80,13 +80,14 @@ class CoreToMvcConverter:
 
         self._create_controllers(['Shared'])
 
-        copy_assets(self.assets_path, self.project_assets_path)
+        copy_assets(self.core_project_assets_path, self.project_assets_path)
 
-        add_gulpfile(self.project_root, MVC_GULP_ASSETS_PATH)
+        # if self.include_gulp:
+        #     has_plugins_file = plugins_file(self.source_path, self.project_root)
+        #     add_gulpfile(self.project_root, MVC_GULP_ASSETS_PATH, has_plugins_file)
+        #     update_package_json(self.source_path, self.project_root, self.project_name)
 
-        # update_package_json(self.source_path, self.project_root, self.project_name)
-
-        Log.completed(f"Project '{self.project_name}' setup", str(self.project_root))
+        Log.project_end(self.project_name, str(self.project_root))
 
     def _convert(self):
         for root, _, files in os.walk(self.core_project_pages_path):
@@ -109,17 +110,15 @@ class CoreToMvcConverter:
 
                         with open(dest_path, "w", encoding="utf-8") as f:
                             f.writelines(filtered_lines)
-
-                        print(f"Converted to MVC: {src_path} -> {dest_path}")
+                        Log.converted(dest_path)
                     except IOError as e:
-                        print(f"Error processing {src_path}: {e}")
+                        Log.error(f"Error processing {src_path}: {e}")
 
     def _create_controllers(self, ignore_list=None):
         ignore_list = ignore_list or []
 
-        # 🔥 Remove Controllers folder if it exists
         if os.path.isdir(self.project_controllers_path):
-            print(f"🧹 Removing existing Controllers folder: {self.project_controllers_path}")
+            Log.info(f"Removing existing Controllers folder: {self.project_controllers_path}")
             shutil.rmtree(self.project_controllers_path)
 
         os.makedirs(self.project_controllers_path, exist_ok=True)

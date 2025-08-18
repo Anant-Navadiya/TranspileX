@@ -1,12 +1,5 @@
 SOURCE_PATH = "./html"
-
-ASSETS_PATH = "./assets"
-
-SUPPORTED_FRAMEWORKS = ['php', 'laravel', 'cakephp', 'codeigniter', 'symfony', 'node', 'django', 'flask', 'ror',
-                        'spring' 'core',
-                        'mvc',
-                        'blazor',
-                        'core-to-mvc']
+ASSETS_PATH = f"{SOURCE_PATH}/assets"
 
 # PHP
 PHP_DESTINATION_FOLDER = 'php'
@@ -133,3 +126,12 @@ FILENAME_PRIORITY = [
     'title-meta.html',
     'app-meta-title.html'
 ]
+
+COLORS = {
+    "INFO": "\033[38;5;39m",
+    "SUCCESS": "\033[38;5;35m",
+    "WARNING": "\033[38;5;178m",
+    "ERROR": "\033[38;5;203m",
+    "RESET": "\033[0m",
+    "GRAY": "\033[38;5;244m"
+}

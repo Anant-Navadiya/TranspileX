@@ -1,12 +1,6 @@
 import sys
 
-COLORS = {
-    "INFO": "\033[38;5;39m",
-    "SUCCESS": "\033[38;5;35m",
-    "WARNING": "\033[38;5;178m",
-    "ERROR": "\033[38;5;203m",
-    "RESET": "\033[0m",
-}
+from transpilex.config.base import COLORS
 
 
 class Log:

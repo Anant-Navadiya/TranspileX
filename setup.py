@@ -31,7 +31,6 @@ setup(
         'python-slugify==8.0.4',
         'PyYAML==6.0.2',
         'requests==2.32.4',
-        'rich==14.0.0',
         'six==1.17.0',
         'soupsieve==2.7',
         'text-unidecode==1.3',
