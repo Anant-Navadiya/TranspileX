@@ -17,9 +17,7 @@ from transpilex.frameworks.mvc import MVCConverter
 from transpilex.frameworks.blazor import BlazorConverter
 from transpilex.frameworks.core_to_mvc import CoreToMvcConverter
 from transpilex.helpers.logs import Log
-
 from transpilex.helpers.system_check import system_check
-
 from transpilex.config.base import SOURCE_PATH, ASSETS_PATH, SUPPORTED_FRAMEWORKS
 
 
@@ -44,7 +42,6 @@ def main():
     php_p = subparsers.add_parser("php", help="Convert to PHP")
     add_common_framework_args(php_p)
     php_p.add_argument("--no-gulp", action='store_true')
-    php_p.add_argument("--no-plugins-config", action='store_true')
 
     # laravel
     laravel_p = subparsers.add_parser("laravel", help="Convert to Laravel")
@@ -55,38 +52,32 @@ def main():
     cakephp_p = subparsers.add_parser("cakephp", help="Convert to CakePHP")
     add_common_framework_args(cakephp_p)
     cakephp_p.add_argument("--no-gulp", action='store_true')
-    cakephp_p.add_argument("--no-plugins-config", action='store_true')
 
     # codeigniter
     codeigniter_p = subparsers.add_parser("codeigniter", help="Convert to CodeIgniter")
     add_common_framework_args(codeigniter_p)
     codeigniter_p.add_argument("--no-gulp", action='store_true')
-    codeigniter_p.add_argument("--no-plugins-config", action='store_true')
 
     # symfony
     symfony_p = subparsers.add_parser("symfony", help="Convert to Symfony")
     add_common_framework_args(symfony_p)
     symfony_p.add_argument("--no-gulp", action='store_true')
-    symfony_p.add_argument("--no-plugins-config", action='store_true')
 
     # node
     node_p = subparsers.add_parser("node", help="Convert to Node")
     add_common_framework_args(node_p)
     node_p.add_argument("--no-gulp", action='store_true')
-    node_p.add_argument("--no-plugins-config", action='store_true')
 
     # django
     django_p = subparsers.add_parser("django", help="Convert to Django")
     add_common_framework_args(django_p)
     django_p.add_argument("--no-gulp", action='store_true')
-    django_p.add_argument("--no-plugins-config", action='store_true')
     django_p.add_argument("--auth", action='store_true')
 
     # flask
     flask_p = subparsers.add_parser("flask", help="Convert to Flask")
     add_common_framework_args(flask_p)
     flask_p.add_argument("--no-gulp", action='store_true')
-    flask_p.add_argument("--no-plugins-config", action='store_true')
     flask_p.add_argument("--auth", action='store_true')
 
     # ror
@@ -97,25 +88,21 @@ def main():
     spring_p = subparsers.add_parser("spring", help="Convert to Spring Boot")
     add_common_framework_args(spring_p)
     spring_p.add_argument("--no-gulp", action='store_true')
-    spring_p.add_argument("--no-plugins-config", action='store_true')
 
     # core
     core_p = subparsers.add_parser("core", help="Convert to Core")
     add_common_framework_args(core_p)
     core_p.add_argument("--no-gulp", action='store_true')
-    core_p.add_argument("--no-plugins-config", action='store_true')
 
     # mvc
     mvc_p = subparsers.add_parser("mvc", help="Convert to MVC")
     add_common_framework_args(mvc_p)
     mvc_p.add_argument("--no-gulp", action='store_true')
-    mvc_p.add_argument("--no-plugins-config", action='store_true')
 
     # blazor
-    blazor_p = subparsers.add_parser("blazor", help="Convert to MVC")
+    blazor_p = subparsers.add_parser("blazor", help="Convert to Blazor")
     add_common_framework_args(blazor_p)
     blazor_p.add_argument("--no-gulp", action='store_true')
-    blazor_p.add_argument("--no-plugins-config", action='store_true')
 
     args = parser.parse_args()
 

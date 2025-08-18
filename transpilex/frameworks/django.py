@@ -8,23 +8,22 @@ from cookiecutter.main import cookiecutter
 from transpilex.config.base import DJANGO_DESTINATION_FOLDER, DJANGO_ASSETS_FOLDER, DJANGO_COOKIECUTTER_REPO, \
     DJANGO_EXTENSION
 from transpilex.helpers import copy_assets, change_extension_and_copy
-from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.plugins_file import plugins_file
 from transpilex.helpers.empty_folder_contents import empty_folder_contents
 from transpilex.helpers.logs import Log
 from transpilex.helpers.move_files import move_files
 from transpilex.helpers.package_json import sync_package_json
-from transpilex.helpers.validations import folder_exists
+from transpilex.helpers.validations import folder_exists, file_exists
 
 
 class DjangoConverter:
     def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
-                 auth: bool = False, plugins_config: bool = True):
+                 auth: bool = False):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(DJANGO_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
-        self.plugins_config = plugins_config
 
         self.project_root = Path(self.destination_path / project_name)
         self.project_assets_path = Path(self.project_root / self.project_name / DJANGO_ASSETS_FOLDER)
@@ -50,13 +49,18 @@ class DjangoConverter:
 
         try:
 
+            has_plugins_file = False
+
+            if file_exists(self.source_path / "plugins.config.js"):
+                has_plugins_file = True
+
             cookiecutter(
                 DJANGO_COOKIECUTTER_REPO,
                 output_dir=str(self.project_root.parent),
                 no_input=True,
                 extra_context={'project_name': self.project_name,
                                'frontend_pipeline': 'Gulp' if self.include_gulp else 'None',
-                               'plugins_config': 'y' if self.plugins_config else 'n', 'username_type': 'email',
+                               'plugins_config': 'y' if has_plugins_file else 'n', 'username_type': 'email',
                                'open_source_license': 'Not open source', 'auth': 'y' if self.auth_required else 'n'
                                },
             )
@@ -88,8 +92,8 @@ class DjangoConverter:
 
         sync_package_json(self.source_path, self.project_root, ignore_gulp=not self.include_gulp)
 
-        if self.include_gulp and self.plugins_config:
-            add_plugins_file(self.source_path, self.project_root)
+        if has_plugins_file:
+            plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 

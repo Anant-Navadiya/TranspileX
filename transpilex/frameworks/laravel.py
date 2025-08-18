@@ -99,7 +99,7 @@ class LaravelConverter:
             self._add_routing_controller_file()
             self._add_routes_web_file()
 
-        public_only = copy_assets_in_public(self.assets_path, self.project_assets_path)
+        public_only = copy_assets_in_public(self.assets_path, self.project_root / "public")
 
         copy_assets(
             self.assets_path,
@@ -186,7 +186,8 @@ class LaravelConverter:
                 # Collect and remove link tags for the 'styles' section
                 links_html_list = []
                 for link_tag in soup.find_all("link"):
-                    links_html_list.append(f"    {str(link_tag)}")
+                    if link_tag.name:
+                        links_html_list.append(f"    {str(link_tag)}")
                     link_tag.decompose()
                 links_html = "\n".join(links_html_list)
 
@@ -194,9 +195,11 @@ class LaravelConverter:
                 scripts_output_list = []
                 for script_tag in soup.find_all("script"):
                     src_attr = script_tag.get('src')
-                    output_line = str(script_tag)
 
+                    # Only process script tags that have a 'src' attribute
                     if src_attr:
+                        output_line = str(script_tag)
+
                         normalized_src_attr = re.sub(r'^(?:(?:\.\/|\.\.\/)*\/)*', '', src_attr)
                         transformed_src_attr = ""
                         if normalized_src_attr.startswith('assets/js/') and not normalized_src_attr.startswith(
@@ -211,8 +214,11 @@ class LaravelConverter:
                             output_line = f"@vite(['{transformed_src_attr}'])"
                             self.vite_inputs.add(transformed_src_attr)
 
-                    scripts_output_list.append(f"    {output_line}")
+                        scripts_output_list.append(f"    {output_line}")
+
+                    # Decompose all script tags regardless, to remove them from the main content
                     script_tag.decompose()
+
                 scripts_html_output = "\n".join(scripts_output_list)
 
                 # Extract the main content from the now-cleaned soup
@@ -467,10 +473,10 @@ Route::group(['prefix' => '/'], function () {
             Log.error(f"Error writing to {self.project_routes_path}: {e}")
 
     def _copy_partials(self):
-        self.project_partials_path.mkdir(parents=True, exist_ok=True)
         partials_source = self.source_path / "partials"
 
         if partials_source.exists() and partials_source.is_dir():
+            self.project_partials_path.mkdir(parents=True, exist_ok=True)
             change_extension_and_copy(LARAVEL_EXTENSION, partials_source, self.project_partials_path)
 
     def _replace_partial_variables(self):

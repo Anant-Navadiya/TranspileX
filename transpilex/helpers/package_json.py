@@ -21,14 +21,19 @@ def update_package_json(source_folder: Path, destination_folder: Path, project_n
     destination_path = destination_folder / "package.json"
 
     dev_deps = {
-        "gulp": "^4.0.2",
-        "gulp-autoprefixer": "^8.0.0",
-        "gulp-clean-css": "^4.2.0",
+        "autoprefixer": "^10.4.0",
         "gulp-concat": "^2.6.1",
+        "cssnano": "^7.0.0",
+        "gulp": "^5.0.0",
+        "gulp-plumber": "^1.2.1",
+        "gulp-postcss": "^10.0.0",
         "gulp-rename": "^2.0.0",
         "gulp-rtlcss": "^2.0.0",
-        "gulp-sass": "^5.1.0",
-        "gulp-sourcemaps": "^3.0.0",
+        "gulp-sass": "^5.0.0",
+        "gulp-uglify-es": "^3.0.0",
+        "node-sass-tilde-importer": "^1.0.2",
+        "pixrem": "^5.0.0",
+        "postcss": "^8.3.11",
         "sass": "1.77.6"
     }
 

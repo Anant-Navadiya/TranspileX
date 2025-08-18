@@ -13,7 +13,7 @@ from transpilex.config.base import SPRING_BOOT_DESTINATION_FOLDER, \
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.restructure_files import restructure_files
 from transpilex.helpers import copy_assets
-from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.plugins_file import plugins_file
 from transpilex.helpers.gulpfile import add_gulpfile
 from transpilex.helpers.logs import Log
 from transpilex.helpers.package_json import update_package_json
@@ -21,8 +21,7 @@ from transpilex.helpers.validations import folder_exists
 
 
 class SpringConverter:
-    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
-                 plugins_config: bool = True):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(SPRING_BOOT_DESTINATION_FOLDER)
@@ -93,11 +92,9 @@ class SpringConverter:
         copy_assets(self.assets_path, self.project_assets_path)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, SPRING_BOOT_GULP_ASSETS_PATH, self.plugins_config)
+            has_plugins_file = plugins_file(self.source_path, self.project_root)
+            add_gulpfile(self.project_root, SPRING_BOOT_GULP_ASSETS_PATH, has_plugins_file)
             update_package_json(self.source_path, self.project_root, self.project_name)
-
-        if self.include_gulp and self.plugins_config:
-            add_plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 

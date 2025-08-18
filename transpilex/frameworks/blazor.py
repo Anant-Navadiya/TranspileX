@@ -8,7 +8,7 @@ import os
 from transpilex.config.base import BLAZOR_ASSETS_FOLDER, BLAZOR_DESTINATION_FOLDER, \
     BLAZOR_PROJECT_CREATION_COMMAND, BLAZOR_EXTENSION, BLAZOR_GULP_ASSETS_PATH, SLN_FILE_CREATION_COMMAND
 from transpilex.helpers import copy_assets
-from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.plugins_file import plugins_file
 from transpilex.helpers.casing import to_pascal_case
 from transpilex.helpers.clean_relative_asset_paths import clean_relative_asset_paths
 from transpilex.helpers.gulpfile import add_gulpfile

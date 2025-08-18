@@ -9,7 +9,7 @@ from transpilex.config.base import FLASK_DESTINATION_FOLDER, FLASK_ASSETS_FOLDER
     FLASK_PROJECT_CREATION_COMMAND_AUTH, FLASK_GULP_ASSETS_PATH, FLASK_EXTENSION
 from transpilex.helpers import change_extension_and_copy, copy_assets
 from transpilex.helpers.gulpfile import add_gulpfile
-from transpilex.helpers.add_plugins_file import add_plugins_file
+from transpilex.helpers.plugins_file import plugins_file
 from transpilex.helpers.git import remove_git_folder
 from transpilex.helpers.logs import Log
 from transpilex.helpers.move_files import move_files
@@ -20,14 +20,12 @@ from transpilex.helpers.validations import folder_exists
 
 class FlaskConverter:
     def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
-                 plugins_config: bool = True,
                  auth: bool = False):
         self.project_name = project_name
         self.source_path = Path(source_path)
         self.destination_path = Path(FLASK_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
-        self.plugins_config = plugins_config
 
         self.project_root = Path(self.destination_path / project_name)
         self.project_assets_path = Path(self.project_root / FLASK_ASSETS_FOLDER)
@@ -47,7 +45,6 @@ class FlaskConverter:
         if folder_exists(self.project_root):
             Log.error(f"Project already exists at: {self.project_root}")
             return
-
 
         Log.project_start(self.project_name)
 
@@ -80,11 +77,9 @@ class FlaskConverter:
         copy_assets(self.assets_path, self.project_assets_path)
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, FLASK_GULP_ASSETS_PATH, self.plugins_config)
+            has_plugins_file = plugins_file(self.source_path, self.project_root)
+            add_gulpfile(self.project_root, FLASK_GULP_ASSETS_PATH, has_plugins_file)
             update_package_json(self.source_path, self.project_root, self.project_name)
-
-        if self.include_gulp and self.plugins_config:
-            add_plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 

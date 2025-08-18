@@ -15,145 +15,194 @@ def add_gulpfile(project_root: Path, asset_path: str, plugins_config: bool = Tru
     - asset_path: Dictionary with keys 'css', 'scss', 'vendor' (Note: no longer used by this template)
     """
 
-    plugins_import = 'const pluginFile = require("./plugins.config"); // Import the plugins list' if plugins_config else ''
+    plugins_import = 'const pluginFile = require("./plugins.config"); // Import the plugins list' if plugins_config else f"""
+const pluginFile = {{
+    vendorsCSS: [],
+    vendorsJS: []
+}}
+"""
 
     plugins_fn = """
-    // Copying Third Party Plugins Assets
-    const plugins = function () {
-        const out = paths.baseDistAssets + "plugins/";
+// Copying Third Party Plugins Assets
+const plugins = function () {
+    const out = paths.baseDistAssets + "plugins/";
 
-        pluginFile.forEach(({name, vendorsJS, vendorCSS, vendorFonts, assets, fonts, font, media, img, webfonts}) => {
+    pluginFile.forEach(({name, vendorsJS, vendorCSS, vendorFonts, assets, fonts, font, media, img, webfonts}) => {
 
-            const handleError = (label, files) => (err) => {
-                const shortMsg = err.message.split('\\n')[0];
-                console.error(`\\n${label} - ${shortMsg}`);
-                throw new Error(` ${label} failed`);
-            };
+        const handleError = (label, files) => (err) => {
+            const shortMsg = err.message.split('\\n')[0];
+            console.error(`\\n${label} - ${shortMsg}`);
+            throw new Error(` ${label} failed`);
+        };
 
-            if (vendorsJS) {
-                src(vendorsJS)
-                    .on('error', handleError('vendorsJS'))
-                    .pipe(concat("vendors.min.js"))
-                    .pipe(dest(paths.baseDistAssets + "js/"));
-            }
+        if (vendorsJS) {
+            src(vendorsJS)
+                .on('error', handleError('vendorsJS'))
+                .pipe(concat("vendors.min.js"))
+                .pipe(dest(paths.baseDistAssets + "js/"));
+        }
 
-            if (vendorCSS) {
-                src(vendorCSS)
-                    .pipe(concat("vendors.min.css"))
-                    .on('error', handleError('vendorCSS'))
-                    .pipe(dest(paths.baseDistAssets + "css/"));
-            }
+        if (vendorCSS) {
+            src(vendorCSS)
+                .pipe(concat("vendors.min.css"))
+                .on('error', handleError('vendorCSS'))
+                .pipe(dest(paths.baseDistAssets + "css/"));
+        }
 
-            if (vendorFonts) {
-                src(vendorFonts)
-                    .on('error', handleError('vendorFonts'))
-                    .pipe(dest(paths.baseDistAssets + "css/fonts/"));
-            }
+        if (vendorFonts) {
+            src(vendorFonts)
+                .on('error', handleError('vendorFonts'))
+                .pipe(dest(paths.baseDistAssets + "css/fonts/"));
+        }
 
-            if (assets) {
-                src(assets)
-                    .on('error', handleError('assets'))
-                    .pipe(dest(`${out}${name}/`));
-            }
+        if (assets) {
+            src(assets)
+                .on('error', handleError('assets'))
+                .pipe(dest(`${out}${name}/`));
+        }
 
-            if (img) {
-                src(img)
-                    .on('error', handleError('img'))
-                    .pipe(dest(`${out}${name}/img/`));
-            }
+        if (img) {
+            src(img)
+                .on('error', handleError('img'))
+                .pipe(dest(`${out}${name}/img/`));
+        }
 
-            if (media) {
-                src(media)
-                    .on('error', handleError('media'))
-                    .pipe(dest(`${out}${name}/`));
-            }
+        if (media) {
+            src(media)
+                .on('error', handleError('media'))
+                .pipe(dest(`${out}${name}/`));
+        }
 
-            if (fonts) {
-                src(fonts)
-                    .on('error', handleError('fonts'))
-                    .pipe(dest(`${out}${name}/fonts/`));
-            }
+        if (fonts) {
+            src(fonts)
+                .on('error', handleError('fonts'))
+                .pipe(dest(`${out}${name}/fonts/`));
+        }
 
-            if (font) {
-                src(font)
-                    .on('error', handleError('font'))
-                    .pipe(dest(`${out}${name}/font/`));
-            }
+        if (font) {
+            src(font)
+                .on('error', handleError('font'))
+                .pipe(dest(`${out}${name}/font/`));
+        }
 
-            if (webfonts) {
-                src(webfonts)
-                    .on('error', handleError('webfonts'))
-                    .pipe(dest(`${out}${name}/webfonts/`));
-            }
-        });
+        if (webfonts) {
+            src(webfonts)
+                .on('error', handleError('webfonts'))
+                .pipe(dest(`${out}${name}/webfonts/`));
+        }
+    });
 
-        return Promise.resolve();
-    };
-    """.strip() if plugins_config else ''
+    return Promise.resolve();
+};
+    """ if plugins_config else f"""
+const vendorStyles = function () {{
+const out = paths.baseDistAssets + "/css/";
 
-    plugins_task = "plugins," if plugins_config else ""
+return src(pluginFile.vendorsCSS, {{sourcemaps: true, allowEmpty: true}})
+    .pipe(concat('vendors.css'))
+    .pipe(plumber()) // Checks for errors
+    .pipe(postcss(processCss))
+    .pipe(dest(out))
+    .pipe(rename({{suffix: '.min'}}))
+    .pipe(postcss(minifyCss)) // Minifies the result
+    .pipe(dest(out));
+}}
+
+
+const vendorScripts = function () {{
+    const out = paths.baseDistAssets + "/js/";
+
+    return src(pluginFile.vendorsJS, {{sourcemaps: true, allowEmpty: true}})
+        .pipe(concat('vendors.js'))
+        .pipe(dest(out))
+        .pipe(plumber()) // Checks for errors
+        .pipe(uglify()) // Minifies the js
+        .pipe(rename({{suffix: '.min'}}))
+        .pipe(dest(out, {{sourcemaps: '.'}}));
+}}
+"""
+
+    plugins_task = "plugins," if plugins_config else "vendorStyles, vendorScripts,"
 
     gulpfile_template = f"""
-const {{series, src, dest, parallel, watch}} = require("gulp");
+// Gulp and package
+const {{src, dest, parallel, series, watch}} = require('gulp');
 
-const autoprefixer = require("gulp-autoprefixer");
-const concat = require("gulp-concat");
-const CleanCSS = require("gulp-clean-css");
-const rename =require("gulp-rename");
-const rtlcss = require("gulp-rtlcss");
-const sourcemaps = require("gulp-sourcemaps");
-const sass = require("gulp-sass")(require("sass"));
+// Plugins
+const autoprefixer = require('autoprefixer');
+const concat = require('gulp-concat');
+const tildeImporter = require('node-sass-tilde-importer');
+const cssnano = require('cssnano');
+const pixrem = require('pixrem');
+const plumber = require('gulp-plumber');
+const postcss = require('gulp-postcss');
+const rename = require('gulp-rename');
+const gulpSass = require('gulp-sass');
+const dartSass = require('sass');
+const gulUglifyES = require('gulp-uglify-es');
+const rtlcss = require('gulp-rtlcss');
+
+const sass = gulpSass(dartSass);
+const uglify = gulUglifyES.default;
 
 {plugins_import}
 
 const paths = {{
-    baseDistAssets: "{asset_path}",  // build assets directory
     baseSrcAssets: "{asset_path}",   // source assets directory
+    baseDistAssets: "{asset_path}",  // build assets directory
 }};
 
-{plugins_fn}
+
+const processCss = [
+    autoprefixer(), // adds vendor prefixes
+    pixrem(), // add fallbacks for rem units
+];
+
+const minifyCss = [
+    cssnano({{preset: 'default'}}), // minify result
+];
 
 const scss = function () {{
-    const out = paths.baseDistAssets + "css/";
+    const out = paths.baseDistAssets + "/css/";
 
-    return src(paths.baseSrcAssets + "scss/**/*.scss")
-        .pipe(sourcemaps.init())
-        .pipe(sass.sync().on('error', sass.logError)) // scss to css
+    return src(paths.baseSrcAssets + "/scss/**/*.scss")
         .pipe(
-            autoprefixer({{
-                overrideBrowserslist: ["last 2 versions"],
-            }})
+            sass({{
+                importer: tildeImporter,
+                includePaths: [paths.baseSrcAssets + "/scss"],
+            }}).on('error', sass.logError),
         )
+        .pipe(plumber()) // Checks for errors
+        .pipe(postcss(processCss))
         .pipe(dest(out))
-        .pipe(CleanCSS())
-        .pipe(rename({{suffix: ".min"}}))
-        .pipe(sourcemaps.write("./")) // source maps
+        .pipe(rename({{suffix: '.min'}}))
+        .pipe(postcss(minifyCss)) // Minifies the result
         .pipe(dest(out));
 }};
 
 const rtl = function () {{
-    const out = paths.baseDistAssets + "css/";
+    const out = paths.baseDistAssets + "/css/";
 
-    return src(paths.baseSrcAssets + "scss/**/*.scss")
-        .pipe(sourcemaps.init())
-        .pipe(sass.sync().on('error', sass.logError)) // scss to css
+    return src(paths.baseSrcAssets + "/scss/**/*.scss")
         .pipe(
-            autoprefixer({{
-                overrideBrowserslist: ["last 2 versions"],
-            }})
+            sass({{
+                importer: tildeImporter,
+                includePaths: [paths.baseSrcAssets + "/scss"],
+            }}).on('error', sass.logError),
         )
-        .pipe(rtlcss())
-        .pipe(rename({{suffix: "-rtl"}}))
+        .pipe(plumber()) // Checks for errors
+        .pipe(postcss(processCss))
         .pipe(dest(out))
-        .pipe(CleanCSS())
-        .pipe(rename({{suffix: ".min"}}))
-        .pipe(sourcemaps.write("./")) // source maps
+        .pipe(rtlcss())
+        .pipe(rename({{suffix: "-rtl.min"}}))
+        .pipe(postcss(minifyCss)) // Minifies the result
         .pipe(dest(out));
 }};
 
+{plugins_fn}
 
-function watchFiles() {{
-    watch(paths.baseSrcAssets + "scss/**/*.scss", series(scss));
+const watchFiles = function () {{
+    watch(paths.baseSrcAssets + "/scss/**/*.scss", series(scss));
 }}
 
 // Production Tasks
