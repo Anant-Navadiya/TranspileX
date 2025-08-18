@@ -173,11 +173,11 @@ class BlazorConverter:
 
             if js_import_paths:
                 top_lines = f"""@page "{route_path}"
-    @rendermode InteractiveServer
-    @implements IAsyncDisposable
-    @inject IJSRuntime JsRuntime;
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime;
 
-    """
+"""
                 import_statements = []
                 load_function_calls = []
 
@@ -185,79 +185,84 @@ class BlazorConverter:
 
                     clean_path_str = path_str.lstrip('/')
 
-                    original_file_path = self.source_path / clean_path_str
-                    function_name, import_path = self._wrap_and_copy_js_file(original_file_path)
+                    primary_path = self.source_path / clean_path_str
+                    fallback_path = self.source_path / 'assets' / clean_path_str
 
-                    if function_name and import_path:
-                        # The import path is now the path to the NEW wrapped file
-                        import_statements.append(
-                            f'_modules.Add(await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./{import_path}"));'
-                        )
-                        # The function name is returned by our helper
-                        load_function_calls.append(
-                            f'await JsRuntime.InvokeVoidAsync("{function_name}");'
-                        )
+                    original_file_path = None
+                    if primary_path.is_file():
+                        original_file_path = primary_path
+                    elif fallback_path.is_file():
+                        original_file_path = fallback_path
+
+                    if original_file_path:
+                        function_name, import_path = self._wrap_and_copy_js_file(original_file_path)
+                        if function_name and import_path:
+                            import_statements.append(
+                                f'_modules.Add(await JsRuntime.InvokeAsync<IJSObjectReference>("import", "./{import_path}"));')
+                            load_function_calls.append(f'await JsRuntime.InvokeVoidAsync("{function_name}");')
+                    else:
+                        Log.warning(f"Could not find JS source file for {path_str}")
 
                 imports_code = "\n                    ".join(import_statements)
                 load_calls_code = "\n                    ".join(load_function_calls)
 
                 end_lines = f"""
-    @code {{
-        private List<IJSObjectReference> _modules = new();
+@code {{
+    private List<IJSObjectReference> _modules = new();
 
-        protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {{
+        if (firstRender)
         {{
-            if (firstRender)
+            try
             {{
-                try
-                {{
-                    {imports_code}
-                    {load_calls_code}
-                    await JsRuntime.InvokeVoidAsync("loadConfig");
-                    await JsRuntime.InvokeVoidAsync("loadApps");
-                }}
-                catch (Exception ex)
-                {{
-                    Console.WriteLine($"Error during JS interop: {{ex.Message}}");
-                }}
+                {imports_code}
+                {load_calls_code}
+                await JsRuntime.InvokeVoidAsync("loadConfig");
+                await JsRuntime.InvokeVoidAsync("loadApps");
             }}
-        }}
-
-        async ValueTask IAsyncDisposable.DisposeAsync()
-        {{
-            foreach (var module in _modules)
+            catch (Exception ex)
             {{
-                if (module is not null)
-                {{
-                    await module.DisposeAsync();
-                }}
+                Console.WriteLine($"Error during JS interop: {{ex.Message}}");
             }}
         }}
     }}
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {{
+        foreach (var module in _modules)
+        {{
+            if (module is not null)
+            {{
+                await module.DisposeAsync();
+            }}
+        }}
+    }}
+}}
     """
             else:
                 top_lines = f"""@page "{route_path}"
-    @rendermode InteractiveServer
-    @inject IJSRuntime JsRuntime;
+@rendermode InteractiveServer
+@inject IJSRuntime JsRuntime;
 
-    """
-                end_lines = """
-    @code {
-        protected override async Task OnAfterRenderAsync(bool firstRender)
+"""
+            end_lines = """
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
         {
-            if (firstRender)
-            {
-                await JsRuntime.InvokeVoidAsync("loadConfig");
-                await JsRuntime.InvokeVoidAsync("loadApps");
-            }
+            await JsRuntime.InvokeVoidAsync("loadConfig");
+            await JsRuntime.InvokeVoidAsync("loadApps");
         }
     }
+}
     """
             if is_body_content:
                 top_lines += f"""@using {self.project_name}.Components.Layout
-    @layout BaseLayout
+@layout BaseLayout
 
-    """
+"""
             else:
                 top_lines += "\n"
 
@@ -319,13 +324,13 @@ class BlazorConverter:
             try:
                 params = json.loads(sanitized_json_str)
             except json.JSONDecodeError:
-                print(f"WARNING: Could not parse JSON for partial '{path}'.")
+                Log.warning(f"Could not parse JSON for partial '{path}'.")
                 return match.group(0)
 
-            # --- Generate attributes dynamically from any key-value pairs ---
+            # Generate attributes dynamically from any key-value pairs
             attr_list = []
             for key, val in params.items():
-                # Convert key to PascalCase (e.g., pageTitle -> PageTitle)
+                # Convert key to PascalCase
                 pascal_key = key[0].upper() + key[1:] if key else ""
 
                 if isinstance(val, str):
@@ -378,61 +383,52 @@ class BlazorConverter:
 
     def _wrap_and_copy_js_file(self, original_js_path: Path):
         """
-        Reads a JS file, wraps its content in a 'load' function with a
-        properly scoped IIFE, and saves it to the Blazor project's wwwroot.
+        Reads a JS file, wraps it, and saves it to the Blazor project's
+        wwwroot, stripping the 'assets' prefix to maintain a clean structure.
         """
         if not original_js_path.is_file():
-            # Keep this essential warning for operational feedback
             Log.warning(f"JS source file not found, skipping: {original_js_path}")
             return None, None
 
         try:
-            # Determine the relative path to maintain the folder structure
-            relative_to_source_str = str(original_js_path.relative_to(self.source_path))
 
-            # Find the core path by stripping known prefixes
-            core_path_str = ""
-            prefixes_to_strip = ['assets/js/', 'scripts/']
-            for prefix in prefixes_to_strip:
-                if relative_to_source_str.startswith(prefix):
-                    core_path_str = relative_to_source_str[len(prefix):]
-                    break
+            # Get the script's path relative to the source project root.
+            relative_path = original_js_path.relative_to(self.source_path)
+            relative_path_str = str(relative_path)
+
+            # If the path starts with 'assets/', remove it.
+            if relative_path_str.startswith('assets/'):
+                # The new path will be 'scripts/pages/dashboard.js'
+                final_relative_path = Path(relative_path_str[len('assets/'):])
             else:
-                core_path_str = relative_to_source_str
+                # If it doesn't, use the path as is.
+                final_relative_path = relative_path
 
-            # Standardize the final destination inside the 'js/' folder
-            final_relative_path = Path('js') / core_path_str
+            # The destination is now correctly calculated without the 'assets' folder.
             destination_file = self.project_assets_path / final_relative_path
             destination_file.parent.mkdir(parents=True, exist_ok=True)
 
-            # Generate the PascalCase function name
+            # The rest of the function remains the same
             file_stem = original_js_path.stem
             parts = file_stem.split('-')
             pascal_case_stem = "".join(word.capitalize() for word in parts)
             function_name = f"load{pascal_case_stem}"
 
-            # Read the original content
             with open(original_js_path, "r", encoding="utf-8") as f:
                 original_content = f.read()
 
-            # Create the new wrapped content with an IIFE
             wrapped_content = f"""
 window.{function_name} = function () {{
 {original_content}
 }};
     """
-            # Save the newly wrapped file
             with open(destination_file, "w", encoding="utf-8") as f:
                 f.write(wrapped_content.strip())
 
+            # The import path for Blazor will now be correct
             import_path = final_relative_path.as_posix()
             return function_name, import_path
 
-        except ValueError:
-            # Handle cases where the path relationship can't be determined
-            Log.error(f"Could not determine relative path for JS file: {original_js_path}")
-            return None, None
         except Exception as e:
-            # A general catch for any other unexpected errors during file processing
             Log.error(f"An unexpected error occurred while processing '{original_js_path}': {e}")
             return None, None
