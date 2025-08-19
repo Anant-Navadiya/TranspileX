@@ -1,5 +1,5 @@
 SOURCE_PATH = "./html"
-ASSETS_PATH = f"{SOURCE_PATH}/assets"
+ASSETS_PATH = "./assets"
 
 # PHP
 PHP_DESTINATION_FOLDER = 'php'
