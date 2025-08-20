@@ -27,7 +27,6 @@ class SpringConverter:
         self.destination_path = Path(SPRING_BOOT_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
-        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / project_name
         self.project_java_path = self.project_root / SPRING_JAVA_SOURCE_FOLDER
