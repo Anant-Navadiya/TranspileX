@@ -21,14 +21,12 @@ from transpilex.helpers.validations import folder_exists
 
 
 class BlazorConverter:
-    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True,
-                 plugins_config: bool = True):
+    def __init__(self, project_name: str, source_path: str, assets_path: str, include_gulp: bool = True):
         self.project_name = project_name.title()
         self.source_path = Path(source_path)
         self.destination_path = Path(BLAZOR_DESTINATION_FOLDER)
         self.assets_path = Path(self.source_path / assets_path)
         self.include_gulp = include_gulp
-        self.plugins_config = plugins_config
 
         self.project_root = self.destination_path / self.project_name
         self.project_assets_path = self.project_root / BLAZOR_ASSETS_FOLDER
@@ -92,11 +90,9 @@ class BlazorConverter:
         self._copy_partials()
 
         if self.include_gulp:
-            add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH, self.plugins_config)
+            has_plugins_file = plugins_file(self.source_path, self.project_root)
+            add_gulpfile(self.project_root, BLAZOR_GULP_ASSETS_PATH, has_plugins_file)
             update_package_json(self.source_path, self.project_root, self.project_name)
-
-        if self.include_gulp and self.plugins_config:
-            add_plugins_file(self.source_path, self.project_root)
 
         Log.project_end(self.project_name, str(self.project_root))
 

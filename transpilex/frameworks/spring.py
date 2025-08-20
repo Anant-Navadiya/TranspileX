@@ -384,21 +384,25 @@ public class {class_name} {{
     def _extract_styles(self, element_to_search, soup_factory):
         """Extracts local stylesheet <link> tags."""
         styles = []
-        for link_tag in element_to_search.find_all('link', rel='stylesheet'):
-            href = link_tag.get('href')
-            if href and not href.startswith(('http', '//')):
-                new_tag = soup_factory.new_tag('link', rel='stylesheet', href=href)
-                styles.append(str(new_tag))
-                link_tag.decompose()
+        # Iterate over a static list copy and add a check for None
+        for link_tag in list(element_to_search.find_all('link', rel='stylesheet')):
+            if link_tag:
+                href = link_tag.get('href')
+                if href and not href.startswith(('http', '//')):
+                    new_tag = soup_factory.new_tag('link', rel='stylesheet', href=href)
+                    styles.append(str(new_tag))
+                    link_tag.decompose()
         return styles
 
     def _extract_scripts(self, element_to_search, soup_factory):
         """Extracts local script tags."""
         scripts = []
-        for script in element_to_search.find_all('script'):
-            src = script.get('src')
-            if src and not src.startswith(('http', '//')):
-                new_tag = soup_factory.new_tag('script', src=src)
-                scripts.append(str(new_tag))
-                script.decompose()
+        # Iterate over a static list copy and add a check for None
+        for script in list(element_to_search.find_all('script')):
+            if script:
+                src = script.get('src')
+                if src and not src.startswith(('http', '//')):
+                    new_tag = soup_factory.new_tag('script', src=src)
+                    scripts.append(str(new_tag))
+                    script.decompose()
         return scripts
