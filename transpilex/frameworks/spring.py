@@ -211,8 +211,8 @@ class SpringConverter:
 
         # Extract ALL styles and scripts from the entire file first.
         # This ensures we find them no matter where they are located.
-        styles = self._extract_styles(soup, soup)
-        scripts = self._extract_scripts(soup, soup)
+        styles = self._extract_styles(soup)
+        scripts = self._extract_scripts(soup)
 
         # Now, find the content block from the modified soup (which no longer has those assets)
         layout_name = 'vertical'
@@ -381,28 +381,26 @@ public class {class_name} {{
         components = snake_str.replace('-', '_').split('_')
         return components[0] + ''.join(x.title() for x in components[1:])
 
-    def _extract_styles(self, element_to_search, soup_factory):
+    def _extract_styles(self, element_to_search):
         """Extracts local stylesheet <link> tags."""
         styles = []
-        # Iterate over a static list copy and add a check for None
         for link_tag in list(element_to_search.find_all('link', rel='stylesheet')):
             if link_tag:
                 href = link_tag.get('href')
                 if href and not href.startswith(('http', '//')):
-                    new_tag = soup_factory.new_tag('link', rel='stylesheet', href=href)
-                    styles.append(str(new_tag))
+                    # Directly format the string instead of creating a new tag
+                    styles.append(f'<link rel="stylesheet" href="{href}">')
                     link_tag.decompose()
         return styles
 
-    def _extract_scripts(self, element_to_search, soup_factory):
+    def _extract_scripts(self, element_to_search):
         """Extracts local script tags."""
         scripts = []
-        # Iterate over a static list copy and add a check for None
         for script in list(element_to_search.find_all('script')):
             if script:
                 src = script.get('src')
                 if src and not src.startswith(('http', '//')):
-                    new_tag = soup_factory.new_tag('script', src=src)
-                    scripts.append(str(new_tag))
+                    # Directly format the string instead of creating a new tag
+                    scripts.append(f'<script src="{src}"></script>')
                     script.decompose()
         return scripts
