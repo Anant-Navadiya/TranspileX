@@ -170,7 +170,6 @@ class BlazorConverter:
             if js_import_paths:
                 top_lines = f"""@page "{route_path}"
 @rendermode InteractiveServer
-@implements IAsyncDisposable
 @inject IJSRuntime JsRuntime;
 
 """
